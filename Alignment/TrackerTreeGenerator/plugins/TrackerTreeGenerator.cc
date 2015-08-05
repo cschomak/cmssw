@@ -33,6 +33,7 @@
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 #include "FWCore/ServiceRegistry/interface/Service.h"
 
+#include "CondFormats/GeometryObjects/interface/PTrackerParameters.h"
 #include "CommonTools/UtilAlgos/interface/TFileService.h"
 #include "CommonTools/Utils/interface/TFileDirectory.h"
 
@@ -55,6 +56,7 @@
 #include "Geometry/TrackerNumberingBuilder/interface/GeometricDet.h"
 #include "Geometry/TrackerGeometryBuilder/interface/TrackerGeometry.h"
 #include "Geometry/TrackerGeometryBuilder/interface/TrackerGeomBuilderFromGeometricDet.h"
+#include "Geometry/Records/interface/PTrackerParametersRcd.h"
 #include "Geometry/CommonDetUnit/interface/TrackingGeometry.h"
 #include "Geometry/CommonDetUnit/interface/GeomDet.h"
 #include "Geometry/CommonDetUnit/interface/GeomDetUnit.h"
@@ -117,13 +119,15 @@ TrackerTreeGenerator::~TrackerTreeGenerator()
 void
 TrackerTreeGenerator::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 {
-   edm::ESHandle<TrackerGeometry> tkGeom;
    //iSetup.get<TrackerDigiGeometryRecord>().get(tkGeom);
    // now try to take directly the ideal geometry independent of used geometry in Global Tag
    edm::ESHandle<GeometricDet> geometricDet;
    iSetup.get<IdealGeometryRecord>().get(geometricDet);
+   
+   edm::ESHandle<PTrackerParameters> ptp;
+   iSetup.get<PTrackerParametersRcd>().get(ptp);
    TrackerGeomBuilderFromGeometricDet trackerBuilder;
-   tkGeom = trackerBuilder.build(&(*geometricDet), theParameterSet);
+   TrackerGeometry* tkGeom = trackerBuilder.build(&(*geometricDet), *ptp);
  
    const TrackerGeometry *bareTkGeomPtr = &(*tkGeom);
    
