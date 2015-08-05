@@ -120,7 +120,8 @@ if isZmumu50: process.load("Alignment.APEEstimation.samples.DYToMuMu_M-50_Tune4C
 
 process.load('Configuration.StandardSequences.FrontierConditions_GlobalTag_condDBv2_cff')
 from Configuration.AlCa.GlobalTag_condDBv2 import GlobalTag
-process.GlobalTag = GlobalTag(process.GlobalTag, 'GR_P_V56', '')
+#~ process.GlobalTag = GlobalTag(process.GlobalTag, 'GR_P_V56', '')
+process.GlobalTag = GlobalTag(process.GlobalTag, 'auto:run2_data', '')
 print "Using global tag "+process.GlobalTag.globaltag._value
 
 process.load("Configuration.StandardSequences.Services_cff")
@@ -134,9 +135,9 @@ process.GlobalTag.toGet = cms.VPSet(
     cms.PSet(
         record = cms.string("SiPixelTemplateDBObjectRcd"),
         tag = cms.string("SiPixelTemplateDBObject_38T_v3_mc"),
-        connect = cms.untracked.string("frontier://FrontierProd/CMS_CONDITIONS"),
+        connect = cms.string("frontier://FrontierProd/CMS_CONDITIONS"),
     )
-) 
+)
 
 ##
 ## Number of Events (should be after input file)
@@ -160,7 +161,7 @@ if options.useTrackList:
     process.MuSkim.src = 'TrackList'
     process.TriggerSelectionSequence *= process.TrackList
 
-import Alignment.OfflineValidation.tools.trackselectionRefitting as trackselRefit
+import Alignment.CommonAlignment.tools.trackselectionRefitting as trackselRefit
 process.seqTrackselRefit = trackselRefit.getSequence(process, 'ALCARECOTkAlMuonIsolated')
 #~ process.seqTrackselRefit = trackselRefit.getSequence(process, 'ALCARECOTkAlZMuMu')
 
