@@ -3,7 +3,6 @@ import sys
  
 isDA = ISDATEMPLATE
 isMC = ISMCTEMPLATE
-allFromGT = ALLFROMGTTEMPLATE
 applyBows = APPLYBOWSTEMPLATE
 applyExtraConditions = EXTRACONDTEMPLATE
 
@@ -12,14 +11,14 @@ process = cms.Process("Demo")
 ###################################################################
 # Event source and run selection
 ###################################################################
-# readFiles = cms.untracked.vstring()
-# readFiles.extend(FILESOURCETEMPLATE)
-# process.source = cms.Source("PoolSource",
-#                             fileNames = readFiles ,
-#                             duplicateCheckMode = cms.untracked.string('checkAllFilesOpened')
-#                             )
+readFiles = cms.untracked.vstring()
+readFiles.extend(FILESOURCETEMPLATE)
+process.source = cms.Source("PoolSource",
+                            fileNames = readFiles ,
+                            duplicateCheckMode = cms.untracked.string('checkAllFilesOpened')
+                            )
 
-process.load("Alignment.OfflineValidation.DATASETTEMPLATE");
+#process.load("Alignment.OfflineValidation.DATASETTEMPLATE");
 process.load("FWCore.MessageService.MessageLogger_cfi")
 process.MessageLogger.destinations = ['cout', 'cerr']
 process.MessageLogger.cerr.FwkReport.reportEvery = 1000
@@ -86,75 +85,104 @@ process.load("RecoVertex.BeamSpotProducer.BeamSpot_cff")
 process.load("Configuration.StandardSequences.FrontierConditions_GlobalTag_condDBv2_cff")
 process.GlobalTag.globaltag = "GLOBALTAGTEMPLATE"  # take your favourite
 
-if allFromGT:
-     print ">>>>>>>>>> testPVValidation_cfg.py: msg%-i: All is taken from GT"
+####################################################################
+# Get Alignment constants
+####################################################################
+from CondCore.DBCommon.CondDBSetup_cfi import *
+process.trackerAlignment = cms.ESSource("PoolDBESSource",CondDBSetup,
+                                        connect = cms.string('ALIGNOBJTEMPLATE'),
+                                        timetype = cms.string("runnumber"),
+                                        toGet = cms.VPSet(cms.PSet(record = cms.string('TrackerAlignmentRcd'),
+                                                                   tag = cms.string('GEOMTAGTEMPLATE')
+                                                                   ))
+                                        )
+process.es_prefer_trackerAlignment = cms.ESPrefer("PoolDBESSource", "trackerAlignment")
+
+####################################################################
+# Get APE
+####################################################################
+process.setAPE = cms.ESSource("PoolDBESSource",CondDBSetup,
+                                        connect = cms.string('APEOBJTEMPLATE'),
+                                        timetype = cms.string("runnumber"),
+                                        toGet = cms.VPSet(cms.PSet(record = cms.string('TrackerAlignmentErrorExtendedRcd'),
+                                                                   tag = cms.string('ERRORTAGTEMPLATE')
+                                                                   ))
+                                        )
+process.es_prefer_setAPE = cms.ESPrefer("PoolDBESSource", "setAPE")
+
+####################################################################
+# Kinks and Bows (optional)
+####################################################################
+if applyBows:
+     print ">>>>>>>>>> testPVValidation_cfg.py: msg%-i: Applying TrackerSurfaceDeformations!"
+     process.trackerBows = cms.ESSource("PoolDBESSource",CondDBSetup,
+                                        connect = cms.string('BOWSOBJECTTEMPLATE'),
+                                        toGet = cms.VPSet(cms.PSet(record = cms.string('TrackerSurfaceDeformationRcd'),
+                                                                   tag = cms.string('BOWSTAGTEMPLATE')
+                                                                   )
+                                                          )
+                                        )
+     process.es_prefer_Bows = cms.ESPrefer("PoolDBESSource", "trackerBows")
 else:
-     ####################################################################
-     # Get Alignment constants
-     ####################################################################
-     from CondCore.DBCommon.CondDBSetup_cfi import *
-     process.trackerAlignment = cms.ESSource("PoolDBESSource",CondDBSetup,
-                                             connect = cms.string('ALIGNOBJTEMPLATE'),
-                                             timetype = cms.string("runnumber"),
-                                             toGet = cms.VPSet(cms.PSet(record = cms.string('TrackerAlignmentRcd'),
-                                                                        tag = cms.string('GEOMTAGTEMPLATE')
-                                                                        )
-                                                               )
-                                             )
-     process.es_prefer_trackerAlignment = cms.ESPrefer("PoolDBESSource", "trackerAlignment")
+     print ">>>>>>>>>> testPVValidation_cfg.py: msg%-i: MultiPVValidation: Not applying TrackerSurfaceDeformations!"
 
-     ####################################################################
-     # Get APE
-     ####################################################################
-     process.setAPE = cms.ESSource("PoolDBESSource",CondDBSetup,
-                                   connect = cms.string('APEOBJTEMPLATE'),
-                                   timetype = cms.string("runnumber"),
-                                   toGet = cms.VPSet(cms.PSet(record = cms.string('TrackerAlignmentErrorExtendedRcd'),
-                                                              tag = cms.string('ERRORTAGTEMPLATE')
-                                                              )
-                                                     )
-                                   )
-     process.es_prefer_setAPE = cms.ESPrefer("PoolDBESSource", "setAPE")
+####################################################################
+# Extra corrections not included in the GT
+####################################################################
+if applyExtraConditions:
 
-     ####################################################################
-     # Kinks and Bows (optional)
-     ####################################################################
-     if applyBows:
-          print ">>>>>>>>>> testPVValidation_cfg.py: msg%-i: Applying TrackerSurfaceDeformations!"
-          process.trackerBows = cms.ESSource("PoolDBESSource",CondDBSetup,
-                                             connect = cms.string('BOWSOBJECTTEMPLATE'),
-                                             toGet = cms.VPSet(cms.PSet(record = cms.string('TrackerSurfaceDeformationRcd'),
-                                                                        tag = cms.string('BOWSTAGTEMPLATE')
-                                                                        )
-                                                               )
-                                             )
-          process.es_prefer_Bows = cms.ESPrefer("PoolDBESSource", "trackerBows")
-     else:
-          print ">>>>>>>>>> testPVValidation_cfg.py: msg%-i: MultiPVValidation: Not applying TrackerSurfaceDeformations!"
+     import CalibTracker.Configuration.Common.PoolDBESSource_cfi
+     ##### END OF EXTRA CONDITIONS
+ 
+     # ## SiPixel Templates
+     # process.SiPixelTemplates = cms.ESSource("PoolDBESSource",CondDBSetup,
+     #                                         connect = cms.string('frontier://FrontierProd/CMS_CONDITIONS'),
+     #                                         timetype = cms.string("runnumber"),
+     #                                         toGet = cms.VPSet(cms.PSet(record = cms.string('SiPixelTemplateDBObjectRcd'),
+     #                                                                    tag = cms.string('SiPixelTemplateDBObject_38T_v6_offline')
+     #                                                                    )
+     #                                                           )
+     #                                         )
+     # process.es_prefer_SiPixelTemplates = cms.ESPrefer("PoolDBESSource", "SiPixelTemplates") 
+    
+     # ## SiPixel Lorentz Angle corrections
+     # process.conditionsInSiPixelLorentzAngleRcd = CalibTracker.Configuration.Common.PoolDBESSource_cfi.poolDBESSource.clone(
+     #      connect = cms.string('frontier://FrontierProd/CMS_CONDITIONS'),
+     #      toGet = cms.VPSet(cms.PSet(record = cms.string('SiPixelLorentzAngleRcd'),
+     #                                 tag = cms.string('SiPixelLorentzAngle_v4_offline')
+     #                                 )
+     #                        )
+     #      )
+     # process.prefer_conditionsInSiPixelLorentzAngleRcd = cms.ESPrefer("PoolDBESSource", "conditionsInSiPixelLorentzAngleRcd")
 
-          ####################################################################
-          # Extra corrections not included in the GT
-          ####################################################################
-          if applyExtraConditions:
-               print ">>>>>>>>>> testPVValidation_cfg.py: msg%-i: Applying extra calibration constants!"
+     # ## SiStrip BackPlane corrections
+     # process.conditionsInSiStripBackPlaneCorrectionRcd = CalibTracker.Configuration.Common.PoolDBESSource_cfi.poolDBESSource.clone(
+     #      connect = cms.string('frontier://FrontierProd/CMS_CONDITIONS'),
+     #      toGet = cms.VPSet(cms.PSet(record = cms.string('SiStripBackPlaneCorrectionRcd'),
+     #                                 tag = cms.string('SiStripBackPlaneCorrection_deco_GR10_v4_offline'),
+     #                                 label = cms.untracked.string('deconvolution')
+     #                                 )
+     #                        )
+     #      )
+    
+     # process.prefer_conditionsInSiStripBackPlaneCorrectionRcd = cms.ESPrefer("PoolDBESSource", "conditionsInSiStripBackPlaneCorrectionRcd")
 
-               ### this is just an example 
-               import CalibTracker.Configuration.Common.PoolDBESSource_cfi
-               process.SiPixelTemplates = cms.ESSource("PoolDBESSource",CondDBSetup,
-                                                       connect = cms.string('frontier://FrontierProd/CMS_CONDITIONS'),
-                                                       timetype = cms.string("runnumber"),
-                                                       toGet = cms.VPSet(cms.PSet(record = cms.string('SiPixelTemplateDBObjectRcd'),
-                                                                                  tag = cms.string('SiPixelTemplateDBObject_38T_v6_offline')
-                                                                                  )
-                                                                         )
-                                                       )
-               process.es_prefer_SiPixelTemplates = cms.ESPrefer("PoolDBESSource", "SiPixelTemplates") 
+     # ## SiStrip Lorentz Angle corrections
+     # process.conditionsInSiStripLorentzAngleRcd = CalibTracker.Configuration.Common.PoolDBESSource_cfi.poolDBESSource.clone(
+     #      connect = cms.string('frontier://FrontierProd/CMS_CONDITIONS'),
+     #      toGet = cms.VPSet(cms.PSet(record = cms.string('SiStripLorentzAngleRcd'),
+     #                                 tag = cms.string('SiStripLorentzAngleDeco_v3_offline'),
+     #                                 label = cms.untracked.string('deconvolution')
+     #                                 )
+     #                        )
+     #      )
+     # process.prefer_conditionsInSiStripLorentzAngleRcd = cms.ESPrefer("PoolDBESSource", "conditionsInSiStripLorentzAngleRcd")
 
-               ## END OF EXTRA CONDITIONS
-               
-          else:
-               print ">>>>>>>>>> testPVValidation_cfg.py: msg%-i: Not applying extra calibration constants!"
-               
+else:
+     print ">>>>>>>>>> testPVValidation_cfg.py: msg%-i: Not applying extra calibration constants!"
+     
+
+
      
 ####################################################################
 # Load and Configure event selection
@@ -180,7 +208,7 @@ process.noslowpt = cms.EDFilter("FilterOutLowPt",
                                 numtrack = cms.untracked.uint32(0),
                                 thresh = cms.untracked.int32(1),
                                 ptmin  = cms.untracked.double(PTCUTTEMPLATE),
-                                runControl = cms.untracked.bool(RUNCONTROLTEMPLATE),
+                                runControl = cms.untracked.bool(True),
                                 runControlNumber = cms.untracked.uint32(int(runboundary))
                                 )
 
@@ -194,11 +222,11 @@ else:
 ####################################################################
 # Load and Configure Measurement Tracker Event
 ####################################################################
-#process.load("RecoTracker.MeasurementDet.MeasurementTrackerEventProducer_cfi") 
-#process.MeasurementTrackerEvent.pixelClusterProducer = 'ALCARECOTkAlMinBias'
-#process.MeasurementTrackerEvent.stripClusterProducer = 'ALCARECOTkAlMinBias'
-#process.MeasurementTrackerEvent.inactivePixelDetectorLabels = cms.VInputTag()
-#process.MeasurementTrackerEvent.inactiveStripDetectorLabels = cms.VInputTag()
+process.load("RecoTracker.MeasurementDet.MeasurementTrackerEventProducer_cfi") 
+process.MeasurementTrackerEvent.pixelClusterProducer = 'ALCARECOTkAlMinBias'
+process.MeasurementTrackerEvent.stripClusterProducer = 'ALCARECOTkAlMinBias'
+process.MeasurementTrackerEvent.inactivePixelDetectorLabels = cms.VInputTag()
+process.MeasurementTrackerEvent.inactiveStripDetectorLabels = cms.VInputTag()
 
 ####################################################################
 # Load and Configure TrackRefitter
@@ -208,7 +236,6 @@ import RecoTracker.TrackProducer.TrackRefitters_cff
 process.TrackRefitter = RecoTracker.TrackProducer.TrackRefitter_cfi.TrackRefitter.clone()
 process.TrackRefitter.src = "TRACKTYPETEMPLATE"
 process.TrackRefitter.TrajectoryInEvent = True
-process.TrackRefitter.NavigationSchool = ''
 process.TrackRefitter.TTRHBuilder = "WithAngleAndTemplate"
 
 ####################################################################
@@ -291,6 +318,6 @@ else:
 ####################################################################
 process.p = cms.Path(process.goodvertexSkim*
                      process.offlineBeamSpot*
-                     #process.MeasurementTrackerEvent*
+                     process.MeasurementTrackerEvent*
                      process.TrackRefitter*
                      process.PVValidation)
