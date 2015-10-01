@@ -203,11 +203,11 @@ class Job:
                         fout.write("          toGet = cms.VPSet(cms.PSet(record = cms.string('"+element+"'), \n")
                         fout.write("                                     tag = cms.string('"+params[1]+"'), \n")
                         if (len(params)>2):
-                            fout.write("                                     label = cms.string('"+params[2]+"') \n")
+                            fout.write("                                     label = cms.untracked.string('"+params[2]+"') \n")
                         fout.write("                                     ) \n")
                         fout.write("                            ) \n")
                         fout.write("          ) \n")
-                        fout.write("     process.prefer_conditionsIn"+element+" = cms.ESPrefer(\"PoolDBESSource\", \"conditionsIn"+element[0]+"\") \n \n") 
+                        fout.write("     process.prefer_conditionsIn"+element+" = cms.ESPrefer(\"PoolDBESSource\", \"conditionsIn"+element+"\") \n \n") 
                         
             if self.isMC:
                 if line.find("ISDATEMPLATE")!=-1:
@@ -370,7 +370,7 @@ def main():
     
     USER = os.environ.get('USER')
     eosdir=os.path.join("/store/caf/user",USER,"test_out",t)
-    #mkdir_eos(eosdir)
+    mkdir_eos(eosdir)
 
     #### Initialize all the variables
 
