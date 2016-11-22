@@ -1,5 +1,7 @@
 #include <TROOT.h>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <vector>
 
 #include <TString.h>
@@ -58,6 +60,7 @@ class GeometryComparisonPlotter
 
     // methods
     TString LateXstyle (TString);
+    TString LateXstyleTable (TString);
     TString ExtensionFromPrintOption (TString);
     TLegend * MakeLegend (double x1,
                           double y1,
@@ -68,6 +71,7 @@ class GeometryComparisonPlotter
 public:
 
     static int canvas_index; // to append to the name of the canvases in case of duplication
+    static int canvas_profile_index; // to append to the name of the canvases in case of duplication
 
     // constructor and destructor
     GeometryComparisonPlotter(TString tree_file_name,
@@ -84,6 +88,16 @@ public:
                     const vector<float>,
                     const vector<float>
                     );
+                    
+    void MakeProfilePlots (const vector<TString>,
+                    const vector<TString>,
+                    const vector<float>,
+                    const vector<float>
+                    );
+                    
+    void MakeTables (const vector<TString>,
+                    const vector<float>,
+                    const vector<float>);
 
     // option methods
     void SetPrint               (const bool);           // activates the printing of the individual and global pdf
