@@ -19,6 +19,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////
 
 int GeometryComparisonPlotter::canvas_index = 0;
+int GeometryComparisonPlotter::canvas_profile_index = 0;
 
 
 void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTracker.root",
@@ -29,6 +30,7 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
                        TString useDefaultRange= "false",
                        TString plotOnlyGlobal= "false",
                        TString plotPng= "true",
+                       TString makeProfilePlots= "true",
                        float dx_min = -99999,
                        float dx_max = -99999,
                        float dy_min = -99999,
@@ -144,12 +146,16 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
     
     trans->SetGrid(1,1);
     trans->MakePlots(x, y, dyMin, dyMax); // default output is pdf, but png gives a nicer result, so we use it as well
+    if (makeProfilePlots)  trans->MakeProfilePlots(x, y, dyMin, dyMax);
     // remark: what takes the more time is the creation of the output files,
     //         not the looping on the tree (because the code is perfect, of course :p)
     if (plotPng=="true"){
 	    trans->SetPrintOption("png");
 	    trans->MakePlots(x, y, dyMin, dyMax);
+	    if (makeProfilePlots)  trans->MakeProfilePlots(x, y, dyMin, dyMax);
 	}
+	
+	trans->MakeTables(y,dyMin,dyMax);
 
     
     // Plot Rotations
@@ -177,10 +183,10 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
  
     rot->SetGrid(1,1);
     rot->SetPrintOption("pdf");
-    rot->MakePlots(x, b,dbMin, dbMax);
+    //~ rot->MakePlots(x, b,dbMin, dbMax);
     if (plotPng=="true"){
 	    rot->SetPrintOption("png");
-	    rot->MakePlots(x, b,dbMin, dbMax);
+	    //~ rot->MakePlots(x, b,dbMin, dbMax);
 	}	
     
 
