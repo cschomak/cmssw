@@ -123,7 +123,7 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
     // x and y contain the couples to plot
     // -> every combination possible will be performed
     // /!\ always give units (otherwise, unexpected bug from root...)
-    vector<TString> x,y;
+    vector<TString> x,y, xmean;
     vector<float> dyMin,dyMax;
     x.push_back("r");                                           	trans->SetBranchUnits("r",     "cm");
     x.push_back("phi");                                         	trans->SetBranchUnits("phi",   "rad");
@@ -144,9 +144,19 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
     dyMin.push_back(dy_min);
     dyMax.push_back(dy_max);
     
+    xmean.push_back("x");
+    //~ trans->SetBranchSF("x", 	10000);                                           	
+    trans->SetBranchUnits("x",     "cm");
+    xmean.push_back("y");                                           	
+    trans->SetBranchUnits("y",   "cm");
+    xmean.push_back("z");                                           	
+    trans->SetBranchUnits("z",     "cm");     
+    xmean.push_back("r");
+    
+    
     trans->SetGrid(1,1);
-    trans->MakePlots(x, y, dyMin, dyMax); // default output is pdf, but png gives a nicer result, so we use it as well
-    if (makeProfilePlots)  trans->MakeProfilePlots(x, y, dyMin, dyMax);
+    trans->MakePlots(xmean, y, dyMin, dyMax); // default output is pdf, but png gives a nicer result, so we use it as well
+    if (makeProfilePlots)  trans->MakeProfilePlots(xmean, y, dyMin, dyMax);
     // remark: what takes the more time is the creation of the output files,
     //         not the looping on the tree (because the code is perfect, of course :p)
     if (plotPng=="true"){
@@ -155,7 +165,7 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
 	    if (makeProfilePlots)  trans->MakeProfilePlots(x, y, dyMin, dyMax);
 	}
 	
-	trans->MakeTables(y,dyMin,dyMax);
+	trans->MakeTables(xmean,y,dyMin,dyMax);
 
     
     // Plot Rotations

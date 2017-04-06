@@ -720,32 +720,31 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
     CHECK_MAP_CONTENT(_SF ,float);
 #endif
 
-    /// 1) declare TGraphs
+    /// 1) declare Histograms
     // the idea is to produce at the end a table of 7 TMultiGraphs:
     // - 0=Tracker, with color code for the different sublevels
     // - 1..6=different sublevels, with color code for z < or > 0
     // (convention: the six first (resp. last) correspond to z>0 (resp. z<0))
-    // Either all or only good modules will be plotted
+    // Either all modules, only good modules or good modules + those in a given list will be plotted
     // This means that 2*6 TH2F will be filled during the loop on the TTree,
-    // and will be arranged differently with different color codes in the TMultiGraphs
+    // and will be arranged differently with different color codes in the Histograms
 #ifndef NB_SUBLEVELS
 #define NB_SUBLEVELS 6
 #endif
 #define NB_Z_SLICES 2
     
-    // histograms for profile plots, 2D hist to be filled as scatter plots, 
-    // 1D-hists to calculate mean and RMS of y-values for each x-bin of the 2D-hists and for the final profile hist
+    // histograms for profile plots, 
+    // 1D-hists to calculate mean and sigma of y-values for each x-bin of the 2D-hists and for the final profile hist
+    // This is done by using a gaussian fit.
     TH1F * histos[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
     TH1F * histosYValues[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; // Used to calculate the mean and RMS for each x-bin of the 2D-hist
+    TF1 * gausFit[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; 
     TH1F * histosTracker[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; // for the tracker plots all histos are copied to avoid using the same hists in different canvas
     TH2F * histos2D[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
     
     long int ipoint[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
     
-    //variable number of bins, and min and max values for the profile plot histograms
-    int firstBin[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
-    int lastBin[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
-       
+    //variable number of bins
     unsigned int nXBins, nYBins;
     
     nYBins = 1000;
@@ -754,17 +753,6 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
             * c_global_hist[1+NB_SUBLEVELS];
     canvas_profile_index++; // this static index is a safety used in case the MakePlots method is used several times to avoid overloading
     
-    
-    for (unsigned int ic = 0 ; ic <= NB_SUBLEVELS ; ic++)
-    {
-       
-        c_global_hist[ic] = new TCanvas (TString::Format("global_profile_plots_%s_%d", ic==0?"tracker":_sublevel_names[ic-1].Data(),
-                                                                    canvas_profile_index),
-                                    TString::Format("Global overview profile plots of the %s variables", ic==0?"tracker":_sublevel_names[ic-1].Data()),
-                                   _window_width,
-                                   _window_height);
-        c_global_hist[ic]->Divide(x.size(),y.size());
-    }
     
     for (unsigned int ix = 0 ; ix < x.size() ; ix++)
     {
@@ -781,9 +769,8 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 														+TString(igraph%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "n"      : "p" )
 														+std::to_string(canvas_profile_index),
 														"",nXBins,_min[x[ix]],_max[x[ix]],nYBins, 
-														dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
-														dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]);
-				histos2D[ix][iy][igraph]->StatOverflows(kTRUE);
+														_min[y[iy]],
+														_max[y[iy]]+1.);
 #define COLOR_CODE(icolor) int(icolor/4)+icolor+1
             }
         }
@@ -831,10 +818,6 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
             {
                 // CUTS on y[iy]
                 if (branch_i["sublevel"] < 1 || branch_i["sublevel"] > NB_SUBLEVELS) continue;
-                if (_SF[y[iy]]*branch_f[y[iy]] > (dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]) || _SF[y[iy]]*branch_f[y[iy]] < (dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]]))
-                {
-                    continue;
-                }
 
                 // FILLING histograms
                 if (_module_plot_option == "all"){
@@ -843,7 +826,13 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 					histos2D[ix][iy][igraph]->Fill(_SF[x[ix]]*branch_f[x[ix]],
 	                                                 _SF[y[iy]]*branch_f[y[iy]]);
 				}
-                else if (branch_i["inModuleList"]==0 && branch_i["badModuleQuality"]==0 ){
+                else if (_module_plot_option == "good" && branch_i["badModuleQuality"]==0 ){
+					const short int igraph = (branch_i["sublevel"]-1) 
+												+ (branch_f["z"]>=0?0:NB_SUBLEVELS);
+					histos2D[ix][iy][igraph]->Fill(_SF[x[ix]]*branch_f[x[ix]],
+	                                                 _SF[y[iy]]*branch_f[y[iy]]);
+				}
+                else if (_module_plot_option == "list" && (branch_i["inModuleList"]==1 || branch_i["badModuleQuality"]==0) ){
 					const short int igraph = (branch_i["sublevel"]-1) 
 												+ (branch_f["z"]>=0?0:NB_SUBLEVELS);
 					histos2D[ix][iy][igraph]->Fill(_SF[x[ix]]*branch_f[x[ix]],
@@ -884,8 +873,8 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 																	+std::to_string(canvas_profile_index)
 																	+std::to_string(binx),
 																	"",histos2D[ix][iy][igraph]->GetYaxis()->GetNbins(),
-																	dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
-																	dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]);
+																	_min[y[iy]],
+																	_max[y[iy]]+1.);
 						histosYValues[ix][iy][igraph]->StatOverflows(kTRUE);
 						// Loop over y-bins for each x-bin of the 2D histogram and put it into the 1-d y histograms
 						// Take overflow bin into account 
@@ -898,9 +887,11 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 							}
 						}
 						if (entries)
-						{
-							histos[ix][iy][igraph]->SetBinContent(binx,histosYValues[ix][iy][igraph]->GetMean());
-							histos[ix][iy][igraph]->SetBinError(binx,histosYValues[ix][iy][igraph]->GetRMS());
+						{							
+							histosYValues[ix][iy][igraph]->Fit("gaus");
+							gausFit[ix][iy][igraph] = histosYValues[ix][iy][igraph]->GetFunction("gaus");							
+							histos[ix][iy][igraph]->SetBinContent(binx,int(floor(gausFit[ix][iy][igraph]->GetParameter(1)+0.5)));
+							histos[ix][iy][igraph]->SetBinError(binx,int(floor(gausFit[ix][iy][igraph]->GetParameter(2)+0.5)));	
 						}
 
 					}
@@ -917,6 +908,18 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
     TLegend * legend = MakeLegend(.1,.92,.9,1.);
     
     gROOT->SetBatch(_batchMode);
+    
+    
+    for (unsigned int ic = 0 ; ic <= NB_SUBLEVELS ; ic++)
+    {
+       
+        c_global_hist[ic] = new TCanvas (TString::Format("global_profile_plots_%s_%d", ic==0?"tracker":_sublevel_names[ic-1].Data(),
+                                                                    canvas_profile_index),
+                                    TString::Format("Global overview profile plots of the %s variables", ic==0?"tracker":_sublevel_names[ic-1].Data()),
+                                   _window_width,
+                                   _window_height);
+        c_global_hist[ic]->Divide(x.size(),y.size());
+    }
       
 
 #define INDEX_IN_GLOBAL_CANVAS(i1,i2) 1 + i1 + i2*x.size()
@@ -978,7 +981,7 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
                 histosTracker[ix][iy][igraph]->SetMarkerColor(COLOR_CODE(igraph%NB_SUBLEVELS));
 	            histosTracker[ix][iy][igraph]->SetLineColor(COLOR_CODE(igraph%NB_SUBLEVELS));
 	            histosTracker[ix][iy][igraph]->SetMarkerStyle(6);
-	            histosTracker[ix][iy][igraph]->Draw("same pe");
+	            histosTracker[ix][iy][igraph]->Draw("same pe0");
    
             }
             
@@ -1001,7 +1004,7 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 			for (unsigned short int jgraph = 0 ; jgraph < NB_SUBLEVELS*NB_Z_SLICES ; jgraph++)
             {
                 unsigned short int igraph = NB_SUBLEVELS*NB_Z_SLICES - jgraph - 1; // reverse counting for humane readability (one of the sublevel takes much more place than the others)
-                histosTracker[ix][iy][igraph]->Draw("same pe");
+                histosTracker[ix][iy][igraph]->Draw("same pe0");
 			}
 			// printing will be performed after customisation (e.g. legend or title) just after the loops on ix and iy
             /// SUBLEVELS (1..6)
@@ -1016,7 +1019,6 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
                 cout << __FILE__ << ":" << __LINE__ << ":Error: color code incomplete for Z slices..." << endl;
 #endif
 
-				
 				// Draw and print profile histograms
                 c_hist[ix][iy][isublevel] = new TCanvas (TString::Format("c_hist_%s_vs_%s_%s_%d", x[ix].Data(),
                                                                                    y[iy].Data(),
@@ -1035,15 +1037,14 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 													TString (";") + LateXstyle(x[ix]) + " /" + _units[x[ix]]
 													+ TString (";") + LateXstyle(y[iy]) + " /" + _units[y[iy]]);
                 
-                
                 histos[ix][iy][             isublevel-1]->SetMarkerColor(kBlack);
                 histos[ix][iy][             isublevel-1]->SetLineColor(kBlack);
                 histos[ix][iy][NB_SUBLEVELS+isublevel-1]->SetMarkerColor(kRed);
                 histos[ix][iy][NB_SUBLEVELS+isublevel-1]->SetLineColor(kRed);
                 
                 
-				histos[ix][iy][             isublevel-1]->Draw("same pe");
-                histos[ix][iy][NB_SUBLEVELS+isublevel-1]->Draw("same pe");
+				histos[ix][iy][             isublevel-1]->Draw("same pe0");
+                histos[ix][iy][NB_SUBLEVELS+isublevel-1]->Draw("same pe0");
                 
                 if (_print && _print_only_global != "true") c_hist[ix][iy][isublevel]->Print(_output_directory 
 																+ TString::Format("Profile_plot_%s_vs_%s_%s_%d", x[ix].Data(), y[iy].Data(),_sublevel_names[isublevel-1].Data(), canvas_profile_index)
@@ -1063,8 +1064,8 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 													+ TString (";") + LateXstyle(y[iy]) + " /" + _units[y[iy]]);
                 
 
-				histos[ix][iy][             isublevel-1]->Draw("same pe");
-                histos[ix][iy][NB_SUBLEVELS+isublevel-1]->Draw("same pe");
+				histos[ix][iy][             isublevel-1]->Draw("same pe0");
+                histos[ix][iy][NB_SUBLEVELS+isublevel-1]->Draw("same pe0");
             }
            
         } // end of loop on y
@@ -1136,7 +1137,8 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 
 
 // Make additional table for the mean/RMS values of differences
-void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires the differences (y values in the plots) and ranges
+void GeometryComparisonPlotter::MakeTables (vector<TString> x, // axes to combine to plot
+                                           vector<TString> y, // only requires the differences (y values in the plots) and ranges
                                            vector<float> dyMin, // Minimum of y-variable to enable fixed ranges of the histogram
                                            vector<float> dyMax) // Maximum of y-variable to enable fixed ranges of the histogram 
 {
@@ -1152,11 +1154,13 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
             return; \
         }   \
     }
+    CHECK_BRANCHES(x);
     CHECK_BRANCHES(y);
 
     const unsigned int nentries = data->GetEntries();
 
 #ifdef TALKATIVE
+    cout << __FILE__ << ":" << __LINE__ << ":Info: ";    INSIDE_VECTOR(x);   cout << endl;
     cout << __FILE__ << ":" << __LINE__ << ":Info: ";    INSIDE_VECTOR(y);   cout << endl;
 #endif
 
@@ -1171,6 +1175,7 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
         if (_min.find(axes_vector[i]) == _min.end()) _min[axes_vector[i]] = _SF[axes_vector[i]]*data->GetMinimum(axes_vector[i]); \
         if (_max.find(axes_vector[i]) == _max.end()) _max[axes_vector[i]] = _SF[axes_vector[i]]*data->GetMaximum(axes_vector[i]); \
     }
+    LIMITS(x);
     LIMITS(y);
 
 #ifdef TALKATIVE 
@@ -1186,15 +1191,27 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
     // Four cases are considered: All modules, good modules + those in a list
     // given by the user, good modules - those in the list, only good modules 
     // This means that 4*2*6 histograms will be filled during the loop on the TTree
+    //
+    // Two version of the tables are produced. Once using Gaussian fits (more stable
+    // vs single outliers but might in rare cases not converge) and once using
+    // the mean and RMS of the histograms (more stable but outliers have a
+    // strong impact on the RMS)
 #ifndef NB_SUBLEVELS
 #define NB_SUBLEVELS 6
 #endif
 #define NB_Z_SLICES 2
-#define NB_MODULE_TABLES 4
+#define NB_MODULE_TABLES 2
  
+    TH1F * histosx[x.size()][NB_SUBLEVELS*NB_Z_SLICES];  
+    float meanValuex[x.size()][NB_SUBLEVELS*NB_Z_SLICES];
+    float RMSx[x.size()][NB_SUBLEVELS*NB_Z_SLICES];      
+    
     TH1F * histos[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_MODULE_TABLES];
+    TF1 * gausFit[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_MODULE_TABLES];
     long int meanValue[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_MODULE_TABLES];
+    long int meanValueGaussian[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_MODULE_TABLES];
     long int RMS[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_MODULE_TABLES];     
+    long int RMSGaussian[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_MODULE_TABLES];      
     
 	for (unsigned int iy = 0 ; iy < y.size() ; iy++)
 	{
@@ -1206,11 +1223,31 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
 														+TString(ihist%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "n"      : "p" )
 														+TString(ihist >= NB_SUBLEVELS*NB_Z_SLICES ? 
 															( ihist >= 2*NB_SUBLEVELS*NB_Z_SLICES ? 
-															( ihist >= 3*NB_SUBLEVELS*NB_Z_SLICES ? 	"good" : "goodNotList") : "goodAndList") : "all" ),
+															( ihist >= 3*NB_SUBLEVELS*NB_Z_SLICES ? 	"goodNotList" : "goodOrList") : "good") : "all" ),
 														"",1000,
-														dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
-														dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]);
+														//~ dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
+														//~ dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]+1.);
+														_min[y[iy]],
+														_max[y[iy]]+1.);
 			histos[iy][ihist]->StatOverflows(kTRUE);
+														
+		}
+	}
+
+	for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+	{
+		for (unsigned int ihist = 0 ; ihist < NB_SUBLEVELS*NB_Z_SLICES ; ihist++)
+		{
+			
+			// Create and correctly name a histogram for each subdetector*Z_Slice*ModuleType
+			histosx[ix][ihist] = new TH1F ("histx"+x[ix]+_sublevel_names[ihist%NB_SUBLEVELS]
+														+TString(ihist%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "n"      : "p" ),
+														"",1000,
+														//~ dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
+														//~ dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]+1.);
+														_min[x[ix]],
+														_max[x[ix]]+1.);
+			histosx[ix][ihist]->StatOverflows(kTRUE);
 														
 		}
 	}
@@ -1246,10 +1283,7 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
 
 
 		for (unsigned int iy = 0 ; iy < y.size() ; iy++)
-		{
-			// CUTS on y[iy]
-			//if (x[ix] == y[iy])                                                   continue; // TO DO: handle display when such a case occurs
-			
+		{			
 			if (branch_i["sublevel"] < 1 || branch_i["sublevel"] > NB_SUBLEVELS) continue;
 			if (_SF[y[iy]]*branch_f[y[iy]] > _max[y[iy]] || _SF[y[iy]]*branch_f[y[iy]] < _min[y[iy]])
 			{
@@ -1266,29 +1300,49 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
 										+ (branch_f["z"]>=0?0:NB_SUBLEVELS);
 			histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);
 			
-			// good modules or those by the user (list as "white list")
-			if (branch_i["badModuleQuality"]==0 || branch_i["inModuleList"]>0){
+			// Only good modules
+			if (branch_i["badModuleQuality"]==0){
 				const short int ihisto = (branch_i["sublevel"]-1) 
 											+ (branch_f["z"]>=0?0:NB_SUBLEVELS)
 											+ NB_SUBLEVELS*NB_Z_SLICES;
 				histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);
 			}
 			
-			// good modules not listed by the user (list as "black list")
-			if (branch_i["badModuleQuality"]==0 && branch_i["inModuleList"]==0){
-				const short int ihisto = (branch_i["sublevel"]-1) 
-											+ (branch_f["z"]>=0?0:NB_SUBLEVELS)
-											+ 2*NB_SUBLEVELS*NB_Z_SLICES;
-				histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);
-			}
+			//~ // good modules or those by the user (list as "white list")
+			//~ if (branch_i["badModuleQuality"]==0 || branch_i["inModuleList"]>0){
+				//~ const short int ihisto = (branch_i["sublevel"]-1) 
+											//~ + (branch_f["z"]>=0?0:NB_SUBLEVELS)
+											//~ + 2*NB_SUBLEVELS*NB_Z_SLICES;
+				//~ histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);
+			//~ }
+			//~ 
+			//~ // good modules not listed by the user (list as "black list")
+			//~ if (branch_i["badModuleQuality"]==0 && branch_i["inModuleList"]==0){
+				//~ const short int ihisto = (branch_i["sublevel"]-1) 
+											//~ + (branch_f["z"]>=0?0:NB_SUBLEVELS)
+											//~ + 3*NB_SUBLEVELS*NB_Z_SLICES;
+				//~ histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);
+			//~ }			
 			
-			// Only good modules
-			if (branch_i["badModuleQuality"]==0){
-				const short int ihisto = (branch_i["sublevel"]-1) 
-											+ (branch_f["z"]>=0?0:NB_SUBLEVELS)
-											+ 3*NB_SUBLEVELS*NB_Z_SLICES;
-				histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);
+		}
+		
+		for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+		{			
+			if (branch_i["sublevel"] < 1 || branch_i["sublevel"] > NB_SUBLEVELS) continue;
+			if (_SF[x[ix]]*branch_f[x[ix]] > _max[x[ix]] || _SF[x[ix]]*branch_f[x[ix]] < _min[x[ix]])
+			{
+//#ifdef DEBUG
+//                    cout << "branch_f[y[iy]]=" << branch_f[y[iy]] << endl;
+//#endif
+				continue;
 			}
+
+			// FILLING HISTOGRAMS
+			
+			// histogram for all modules
+			const short int ihistosx = (branch_i["sublevel"]-1) 
+										+ (branch_f["z"]>=0?0:NB_SUBLEVELS);
+			histosx[ix][ihistosx]->Fill( _SF[x[ix]]*branch_f[x[ix]]);		
 			
 		}
     }
@@ -1296,9 +1350,13 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
     cout << __FILE__ << ":" << __LINE__ << ":Info: 100%\tLoop ended" << endl;
 #endif
 
+	//~ TString rangeLabel = "";
 	// Calculate mean and standard deviation for each histogram
 	for (unsigned int iy = 0 ; iy < y.size() ; iy++)
 	{
+		//~ if (iy < y.size()-1) rangeLabel += y[iy]+" ["+to_string(int(dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]]))+","+to_string(int(dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]))+"], ";
+		//~ else rangeLabel += y[iy]+" ["+to_string(int(dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]]))+","+to_string(int(dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]))+"]";
+		
 		for (unsigned int ihist = 0 ; ihist < NB_SUBLEVELS*NB_Z_SLICES*NB_MODULE_TABLES ; ihist++)
 		{
 			// combine +/-z histograms for barrel detectors
@@ -1307,30 +1365,60 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
 			}
 			meanValue[iy][ihist] = histos[iy][ihist]->GetMean();
 			RMS[iy][ihist] = histos[iy][ihist]->GetRMS();
+			
+			//~ gausFit[iy][ihist] = new TF1("GaussianFit","gaus",dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]]);
+			histos[iy][ihist]->Fit("gaus");
+			gausFit[iy][ihist] = histos[iy][ihist]->GetFunction("gaus");
+			cout << gausFit[iy][ihist]->GetParameter(1) << endl;
+			meanValueGaussian[iy][ihist] = int(floor(gausFit[iy][ihist]->GetParameter(1)+0.5));
+			RMSGaussian[iy][ihist] = int(floor(gausFit[iy][ihist]->GetParameter(2)+0.5));	
+			
+			
 														
 		}
 	}
-
+	
+	for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+	{
+		
+		for (unsigned int ihist = 0 ; ihist < NB_SUBLEVELS*NB_Z_SLICES ; ihist++)
+		{
+			// combine +/-z histograms for barrel detectors
+			if (ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 0 || ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 2 ||  ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 4) {
+				histosx[ix][ihist]->Add(histosx[ix][ihist+NB_SUBLEVELS]);
+			}	
+			meanValuex[ix][ihist] = histosx[ix][ihist]->GetMean();
+			RMSx[ix][ihist] = histosx[ix][ihist]->GetRMS();		
+			
+														
+		}
+	}
+	
 	TString tableFileName;
 	TString tableCaption;
 	
+	
+	// table using mean and RMS
 	for (unsigned int i = 0; i < NB_MODULE_TABLES; i++){
 		if ( i == 0) { 
 			tableFileName = "table_allModules.tex";
-			tableCaption = "Means and standard deviations for each subdetector, all modules used";
+			//~ tableCaption = "Means and standard deviations for each subdetector, all modules used. Ranges used: "+rangeLabel;
+			tableCaption = "Means and standard deviations for each subdetector, all modules used.";
 		}
 		else if ( i == 1) { 
-			tableFileName = "table_goodAndListModules.tex";
-			tableCaption = "Means and standard deviations for each subdetector, good modules and those in given list used";
-		}
-		else if ( i == 2) { 
-			tableFileName = "table_goodNotListModules.tex";
-			tableCaption = "Means and standard deviations for each subdetector, good modules that are not in the given list used";
-		}
-		else if ( i == 3) { 
 			tableFileName = "table_goodModules.tex";
-			tableCaption = "Means and standard deviations for each subdetector, only good modules used";
+			//~ tableCaption = "Means and standard deviations for each subdetector, only good modules used. Ranges used: "+rangeLabel;
+			tableCaption = "Means and standard deviations for each subdetector, only good modules used.";
 		}
+		//~ else if ( i == 2) { 
+			//~ tableFileName = "table_goodOrListModules.tex";
+			//~ tableCaption = "Means and standard deviations for each subdetector, good modules and those in given list used. Ranges used: "+rangeLabel;
+		//~ }
+		//~ else if ( i == 3) { 
+			//~ tableFileName = "table_goodNotListModules.tex";
+			//~ tableCaption = "Means and standard deviations for each subdetector, good modules that are not in the given list used. Ranges used: "+rangeLabel;
+		//~ }
+		
 		
 		std::ofstream output(_output_directory+tableFileName); // possibly existing file will be updated, otherwise created
 		
@@ -1363,6 +1451,107 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> y, // only requires 
 		
 		
     }   
+    
+	// table using Gaussian fit
+	for (unsigned int i = 0; i < NB_MODULE_TABLES; i++){
+		if ( i == 0) { 
+			tableFileName = "table_allModules_Gaussian.tex";
+			//~ tableCaption = "Means and standard deviations for Gaussian fit for each subdetector, all modules used. Ranges used: "+rangeLabel;
+			tableCaption = "Means and standard deviations for Gaussian fit for each subdetector, all modules used.";
+		}
+		else if ( i == 1) { 
+			tableFileName = "table_goodAndListModules_Gaussian.tex";
+			//~ tableCaption = "Means and standard deviations for Gaussian fit for each subdetector, good modules and those in given list used. Ranges used: "+rangeLabel;
+			tableCaption = "Means and standard deviations for Gaussian fit for each subdetector, good modules and those in given list used.";
+		}
+		//~ else if ( i == 2) { 
+			//~ tableFileName = "table_goodNotListModules_Gaussian.tex";
+			//~ tableCaption = "Means and standard deviations for Gaussian fit for each subdetector, good modules that are not in the given list used. Ranges used: "+rangeLabel;
+		//~ }
+		//~ else if ( i == 3) { 
+			//~ tableFileName = "table_goodModules_Gaussian.tex";
+			//~ tableCaption = "Means and standard deviations for Gaussian fit for each subdetector, only good modules used. Ranges used: "+rangeLabel;
+		//~ }
+		
+		std::ofstream outputGaussian(_output_directory+tableFileName); // possibly existing file will be updated, otherwise created
+		
+		// Write the table to the tex file
+		outputGaussian << "\\begin{table}" << std::endl;
+		outputGaussian << "\\caption{" << tableCaption << "}" << std::endl;
+		outputGaussian << "\\begin{tabular}{l|c|c|c|c|c|c|c|c|c}" << std::endl;
+		outputGaussian << "\\hline" << std::endl;
+		outputGaussian << " & PXB & PXF+ & PXF- & TIB & TID+ & TID- & TOB & TEC+ & TEC- \\\\" << std::endl;
+		outputGaussian << "\\hline" << std::endl;
+		for (unsigned int iy = 0 ; iy < y.size() ; iy++)
+		{
+			
+			outputGaussian << LateXstyleTable(y[iy]) + " / " + _units[y[iy]].ReplaceAll("#mum", "$\\mu$m")
+				      + " & $"  + std::to_string(meanValueGaussian[iy][0+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][0+i*NB_SUBLEVELS*NB_Z_SLICES])  //PXB 
+				      + "$ & $" + std::to_string(meanValueGaussian[iy][1+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][1+i*NB_SUBLEVELS*NB_Z_SLICES])  //PXF in +z direction
+				      + "$ & $" + std::to_string(meanValueGaussian[iy][1+NB_SUBLEVELS+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][1+NB_SUBLEVELS+i*NB_SUBLEVELS*NB_Z_SLICES])  //PXF in -z direction
+				      + "$ & $" + std::to_string(meanValueGaussian[iy][2+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][2+i*NB_SUBLEVELS*NB_Z_SLICES])  //TIB
+				      + "$ & $" + std::to_string(meanValueGaussian[iy][3+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][3+i*NB_SUBLEVELS*NB_Z_SLICES])  //TID in +z direction
+				      + "$ & $" + std::to_string(meanValueGaussian[iy][3+NB_SUBLEVELS+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][3+NB_SUBLEVELS+i*NB_SUBLEVELS*NB_Z_SLICES])  //TID in -z direction
+				      + "$ & $" + std::to_string(meanValueGaussian[iy][4+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][4+i*NB_SUBLEVELS*NB_Z_SLICES])  //TOB
+				      + "$ & $" + std::to_string(meanValueGaussian[iy][5+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][5+i*NB_SUBLEVELS*NB_Z_SLICES])  //TEC in +z direction
+				      + "$ & $" + std::to_string(meanValueGaussian[iy][5+NB_SUBLEVELS+i*NB_SUBLEVELS*NB_Z_SLICES]) + "\\pm" + std::to_string(RMSGaussian[iy][5+NB_SUBLEVELS+i*NB_SUBLEVELS*NB_Z_SLICES])  //TEC in -z direction
+				      + "$ \\\\" << std::endl;
+				      
+		}
+		outputGaussian << "\\hline" << std::endl;
+		outputGaussian << "\\end{tabular}" << std::endl;
+		outputGaussian << "\\end{table}" << std::endl;
+		
+		
+    }   
+
+
+	tableFileName = "table_meanPos.tex";	
+	
+	std::ofstream outputx(_output_directory+tableFileName); // possibly existing file will be updated, otherwise created
+	
+	tableCaption = "Means positions and standard deviations for each subdetector.";
+	
+	// Write the table to the tex file
+	outputx << "\\begin{table}" << std::endl;
+	outputx << "\\caption{" << tableCaption << "}" << std::endl;
+	outputx << "\\begin{tabular}{l|c|c|c|c|c|c|c|c|c}" << std::endl;
+	outputx << "\\hline" << std::endl;
+	outputx << " & PXB & PXF+ & PXF- & TIB & TID+ & TID- & TOB & TEC+ & TEC- \\\\" << std::endl;
+	outputx << "\\hline" << std::endl;
+
+	char meanCharX[x.size()][NB_SUBLEVELS*NB_Z_SLICES][10];
+	char RMSCharX[x.size()][NB_SUBLEVELS*NB_Z_SLICES][10];
+	 
+	
+	for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+	{				
+		for (unsigned int isubDet = 0 ; isubDet < NB_SUBLEVELS*NB_Z_SLICES; isubDet++)
+		{
+			sprintf(meanCharX[ix][isubDet],"%.3f",meanValuex[ix][isubDet]);
+			sprintf(RMSCharX[ix][isubDet],"%.3f",RMSx[ix][isubDet]);
+		}
+		outputx << LateXstyleTable(x[ix]) + " / " + _units[x[ix]].ReplaceAll("#mum", "$\\mu$m")
+			      //~ + " & $"  + std::to_string(meanValuex[ix][0]) + "\\pm" + std::to_string(RMSx[ix][0])  //PXB 
+			      + " & $"  + meanCharX[ix][0] + "\\pm" + RMSCharX[ix][0]  //PXB 
+			      + "$ & $" + meanCharX[ix][1] + "\\pm" + RMSCharX[ix][1]  //PXF in +z direction
+			      + "$ & $" + meanCharX[ix][1+NB_SUBLEVELS] + "\\pm" + RMSCharX[ix][1+NB_SUBLEVELS]  //PXF in -z direction
+			      + "$ & $" + meanCharX[ix][2] + "\\pm" + RMSCharX[ix][2]  //TIB
+			      + "$ & $" + meanCharX[ix][3] + "\\pm" + RMSCharX[ix][3]  //TID in +z direction
+			      + "$ & $" + meanCharX[ix][3+NB_SUBLEVELS] + "\\pm" + RMSCharX[ix][3+NB_SUBLEVELS] //TID in -z direction
+			      + "$ & $" + meanCharX[ix][4] + "\\pm" + RMSCharX[ix][4]  //TOB
+			      + "$ & $" + meanCharX[ix][5] + "\\pm" + RMSCharX[ix][5]  //TEC in +z direction
+			      + "$ & $" + meanCharX[ix][5+NB_SUBLEVELS] + "\\pm" + RMSCharX[ix][5+NB_SUBLEVELS]  //TEC in -z direction
+			      + "$ \\\\" << std::endl;
+			      
+	}
+	outputx << "\\hline" << std::endl;
+	outputx << "\\end{tabular}" << std::endl;
+	outputx << "\\end{table}" << std::endl;
+	
+	
+	
+		  
 
 	
 #ifdef TALKATIVE

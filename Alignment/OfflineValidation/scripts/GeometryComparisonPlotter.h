@@ -8,6 +8,8 @@
 #include <TStyle.h>
 #include <TAxis.h>
 #include <TGraph.h>
+#include <TF1.h>
+#include <TH1.h>
 #include <TH2.h>
 #include <TMultiGraph.h>
 #include <TFile.h>
@@ -96,6 +98,7 @@ public:
                     );
                     
     void MakeTables (const vector<TString>,
+                    const vector<TString>,
                     const vector<float>,
                     const vector<float>);
 
