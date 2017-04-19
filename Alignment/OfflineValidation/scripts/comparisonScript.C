@@ -127,8 +127,6 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
     vector<float> dyMin,dyMax;
     x.push_back("r");                                           	trans->SetBranchUnits("r",     "cm");
     x.push_back("phi");                                         	trans->SetBranchUnits("phi",   "rad");
-    //~ x.push_back("x");                                           	trans->SetBranchUnits("x",     "cm");      //trans->SetBranchMax("z", 100); trans->SetBranchMin("z", -100);
-    //~ x.push_back("y");                                           	trans->SetBranchUnits("y",     "cm");      //trans->SetBranchMax("z", 100); trans->SetBranchMin("z", -100);
     x.push_back("z");                                           	trans->SetBranchUnits("z",     "cm");      //trans->SetBranchMax("z", 100); trans->SetBranchMin("z", -100);
     y.push_back("dr");		trans->SetBranchSF("dr", 	10000);     trans->SetBranchUnits("dr",    "#mum");
     dyMin.push_back(dr_min);
@@ -155,8 +153,8 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
     
     
     trans->SetGrid(1,1);
-    trans->MakePlots(xmean, y, dyMin, dyMax); // default output is pdf, but png gives a nicer result, so we use it as well
-    if (makeProfilePlots)  trans->MakeProfilePlots(xmean, y, dyMin, dyMax);
+    trans->MakePlots(x, y, dyMin, dyMax); // default output is pdf, but png gives a nicer result, so we use it as well
+    if (makeProfilePlots)  trans->MakeProfilePlots(x, y, dyMin, dyMax);
     // remark: what takes the more time is the creation of the output files,
     //         not the looping on the tree (because the code is perfect, of course :p)
     if (plotPng=="true"){
