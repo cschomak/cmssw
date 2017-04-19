@@ -642,7 +642,7 @@ void GeometryComparisonPlotter::MakePlots (vector<TString> x, // axes to combine
             TPaveText * pt_geom = new TPaveText(.75,.1,.95,.8, "NB");
             pt_geom->SetFillColor(0);
             pt_geom->SetTextSize(0.25);
-            pt_geom->AddText(TString("x: ")+_alignment_name);
+            pt_geom->AddText(TString("x: ")+_reference_name);
             pt_geom->AddText(TString("y: ")+_alignment_name+TString(" - ")+_reference_name);
             pt_geom->Draw();
         }
@@ -655,7 +655,7 @@ void GeometryComparisonPlotter::MakePlots (vector<TString> x, // axes to combine
             TPaveText * pt_geom = new TPaveText(.6,.1,.95,.8, "NB");
             pt_geom->SetFillColor(0);
             pt_geom->SetTextSize(0.3);
-            pt_geom->AddText(TString("x: ")+_alignment_name);
+            pt_geom->AddText(TString("x: ")+_reference_name);
             pt_geom->AddText(TString("y: ")+_alignment_name+TString(" - ")+_reference_name);
             pt_geom->Draw();
         }
@@ -668,6 +668,927 @@ void GeometryComparisonPlotter::MakePlots (vector<TString> x, // axes to combine
     if (_write) output->Close();
 #ifdef TALKATIVE
     cout << __FILE__ << ":" << __LINE__ << ":Info: End of MakePlots method" << endl;
+#endif
+
+}
+
+
+// Routine to make "Profile Plots" -> Plotting histograms of the means and
+// standard deviations instead of scatter plots for each module
+void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to combine to plot
+                                           vector<TString> y, // every combination (except the ones such that x=y) will be perfomed
+                                           vector<float> dyMin, // Minimum of y-variable to enable fixed ranges of the histogram
+                                           vector<float> dyMax) // Minimum of y-variable
+{
+    /// -1) check that only existing branches are called 
+    // (we use a macro to avoid copy/paste)
+#define CHECK_BRANCHES(branchname_vector) \
+    for (unsigned int i = 0 ; i < branchname_vector.size() ; i++) \
+    {   \
+        if (branch_f.find(branchname_vector[i]) == branch_f.end()) \
+        {   \
+            cout << __FILE__ << ":" << __LINE__ << ":Error: The branch " << branchname_vector[i] << " is not recognised." << endl; \
+            return; \
+        }   \
+    }
+    CHECK_BRANCHES(x);
+    CHECK_BRANCHES(y);
+
+    const unsigned int nentries = data->GetEntries();
+
+#ifdef TALKATIVE
+    cout << __FILE__ << ":" << __LINE__ << ":Info: ";    INSIDE_VECTOR(x);   cout << endl
+         << __FILE__ << ":" << __LINE__ << ":Info: ";    INSIDE_VECTOR(y);   cout << endl;
+#endif
+
+    /// 0) min and max values
+    // the max and min of the graphs are computed from the tree if they have not been manually input yet
+    // (we use a macro to avoid copy/paste)
+#define LIMITS(axes_vector) \
+    for (unsigned int i = 0 ; i < axes_vector.size() ; i++) \
+    {   \
+        if ( _SF.find(axes_vector[i]) ==  _SF.end())  _SF[axes_vector[i]] = 1.; \
+        if (_min.find(axes_vector[i]) == _min.end()) _min[axes_vector[i]] = _SF[axes_vector[i]]*data->GetMinimum(axes_vector[i]); \
+        if (_max.find(axes_vector[i]) == _max.end()) _max[axes_vector[i]] = _SF[axes_vector[i]]*data->GetMaximum(axes_vector[i]); \
+    }
+    LIMITS(x);
+    LIMITS(y);
+
+#ifdef TALKATIVE 
+    CHECK_MAP_CONTENT(_min,float);
+    CHECK_MAP_CONTENT(_max,float);
+    CHECK_MAP_CONTENT(_SF ,float);
+#endif
+
+    /// 1) declare Histograms
+    // the idea is to produce at the end a table of 7 Histograms:
+    // - 0=Tracker, with color code for the different sublevels
+    // - 1..6=different sublevels, with color code for z < or > 0
+    // (convention: the six first (resp. last) correspond to z>0 (resp. z<0))
+    // Either all modules, only good modules or good modules + those in a given list will be plotted
+    // This means that 2*6 TH2F will be filled during the loop on the TTree,
+    // and will be arranged differently with different color codes in the Histograms
+#ifndef NB_SUBLEVELS
+#define NB_SUBLEVELS 6
+#endif
+#define NB_Z_SLICES 2
+    
+    // histograms for profile plots, 
+    // 1D-hists to calculate mean and sigma of y-values for each x-bin of the 2D-hists and for the final profile hist
+    // This is done by using a gaussian fit.
+    TH1F * histos[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
+    TH1F * histosYValues[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; // Used to calculate the mean and RMS for each x-bin of the 2D-hist
+    TF1 * gausFit[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; 
+    TH1F * histosTracker[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; // for the tracker plots all histos are copied to avoid using the same hists in different canvas
+    TH2F * histos2D[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
+    
+    long int ipoint[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
+    
+    //variable number of bins
+    unsigned int nXBins, nYBins;
+    
+    nYBins = 1000;
+    
+    TCanvas * c_hist[x.size()][y.size()][1+NB_SUBLEVELS],
+            * c_global_hist[1+NB_SUBLEVELS];
+    canvas_profile_index++; // this static index is a safety used in case the MakePlots method is used several times to avoid overloading
+    
+    
+    for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+    {
+		if ( x[ix] == "phi") nXBins = 10;
+		else nXBins = 40;
+		
+        for (unsigned int iy = 0 ; iy < y.size() ; iy++)
+        {
+            //if (x[ix] == y[iy]) continue;       // do not plot graphs like (r,r) or (phi,phi)
+            for (unsigned int igraph = 0 ; igraph < NB_SUBLEVELS*NB_Z_SLICES ; igraph++)
+            {
+                // declaring
+                histos2D[ix][iy][igraph] = new TH2F ("2Dhist"+x[ix]+y[iy]+_sublevel_names[igraph%NB_SUBLEVELS]
+														+TString(igraph%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "n"      : "p" )
+														+std::to_string(canvas_profile_index),
+														"",nXBins,_min[x[ix]],_max[x[ix]],nYBins, 
+														_min[y[iy]],
+														_max[y[iy]]+1.);
+#define COLOR_CODE(icolor) int(icolor/4)+icolor+1
+            }
+        }
+    }
+       
+#ifdef DEBUG
+    cout << __FILE__ << ":" << __LINE__ << ":Info: Creation of the Histogram[" << x.size() << "][" << y.size() << "][" << NB_SUBLEVELS*NB_Z_SLICES << "] ended." << endl;
+#endif
+
+    /// 2) loop on the TTree data
+#ifdef DEBUG
+    cout << __FILE__ << ":" << __LINE__ << ":Info: Looping on the TTree" << endl;
+#endif
+#ifdef TALKATIVE
+    unsigned int progress = 0;
+    cout << __FILE__ << ":" << __LINE__ << ":Info: 0%" << endl;
+#endif
+    for (unsigned int ientry = 0 ; ientry < nentries ; ientry++)
+    {
+#ifdef  TALKATIVE
+        if (10*ientry/nentries != progress)
+        {
+            progress = 10*ientry/nentries;
+            cout << __FILE__ << ":" << __LINE__ << ":Info: " << 10*progress << "%" << endl;
+        }
+#endif
+        // load current tree entry
+        data->GetEntry(ientry);
+
+        // CUTS on entry
+        if (branch_i["level"] != _levelCut)        continue;
+        if (!_1dModule && branch_i["detDim"] == 1) continue;
+        if (!_2dModule && branch_i["detDim"] == 2) continue;
+
+        // loop on the different couples of variables to plot
+        for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+        {
+            // CUTS on x[ix]
+            if (_SF[x[ix]]*branch_f[x[ix]] > _max[x[ix]] || _SF[x[ix]]*branch_f[x[ix]] < _min[x[ix]]) 
+            {
+                continue;
+            }
+
+            for (unsigned int iy = 0 ; iy < y.size() ; iy++)
+            {
+                // CUTS on y[iy]
+                if (branch_i["sublevel"] < 1 || branch_i["sublevel"] > NB_SUBLEVELS) continue;
+
+                // FILLING histograms
+                if (_module_plot_option == "all"){
+					const short int igraph = (branch_i["sublevel"]-1) 
+												+ (branch_f["z"]>=0?0:NB_SUBLEVELS);
+					histos2D[ix][iy][igraph]->Fill(_SF[x[ix]]*branch_f[x[ix]],
+	                                                 _SF[y[iy]]*branch_f[y[iy]]);
+				}
+                else if (_module_plot_option == "good" && branch_i["badModuleQuality"]==0 ){
+					const short int igraph = (branch_i["sublevel"]-1) 
+												+ (branch_f["z"]>=0?0:NB_SUBLEVELS);
+					histos2D[ix][iy][igraph]->Fill(_SF[x[ix]]*branch_f[x[ix]],
+	                                                 _SF[y[iy]]*branch_f[y[iy]]);
+				}
+                else if (_module_plot_option == "list" && (branch_i["inModuleList"]==1 || branch_i["badModuleQuality"]==0) ){
+					const short int igraph = (branch_i["sublevel"]-1) 
+												+ (branch_f["z"]>=0?0:NB_SUBLEVELS);
+					histos2D[ix][iy][igraph]->Fill(_SF[x[ix]]*branch_f[x[ix]],
+	                                                 _SF[y[iy]]*branch_f[y[iy]]);
+				}
+                
+            }
+        }
+    }
+    
+    // Fill Content of 2D-hists into 1D-hists for the profile plots
+	// Loop over all y-bins for a certain x-bin, calculate mean and RMS as entries of the 1D-hists
+	bool entries = false;
+	for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+        {
+			for (unsigned int iy = 0 ; iy < y.size() ; iy++)
+            {
+				 for (unsigned int igraph = 0 ; igraph < NB_SUBLEVELS*NB_Z_SLICES ; igraph++)
+	            {
+					
+					// Declare hists which will be plotted for the profile plots
+					histos[ix][iy][igraph] = new TH1F ("1Dhist"+x[ix]+y[iy]+_sublevel_names[igraph%NB_SUBLEVELS]
+														+TString(igraph%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "n"      : "p"       )
+														+std::to_string(canvas_profile_index),
+														"",histos2D[ix][iy][igraph]->GetXaxis()->GetNbins(),_min[x[ix]],_max[x[ix]]);
+	                histos[ix][iy][igraph]->SetMarkerColor(COLOR_CODE(igraph));
+	                histos[ix][iy][igraph]->SetLineColor(COLOR_CODE(igraph));
+	                histos[ix][iy][igraph]->StatOverflows(kTRUE);
+	
+	                                                
+					// Loop over x bins
+					for (int binx = 0 ; binx <= histos2D[ix][iy][igraph]->GetXaxis()->GetNbins() ; binx++)
+					{
+						entries = false;
+						// Declare y-histogram for each x bin
+						histosYValues[ix][iy][igraph] = new TH1F ("1Dhist_Y-Values"+x[ix]+y[iy]+_sublevel_names[igraph%NB_SUBLEVELS]
+																	+TString(igraph%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "n"      : "p"       )
+																	+std::to_string(canvas_profile_index)
+																	+std::to_string(binx),
+																	"",histos2D[ix][iy][igraph]->GetYaxis()->GetNbins(),
+																	_min[y[iy]],
+																	_max[y[iy]]+1.);
+						histosYValues[ix][iy][igraph]->StatOverflows(kTRUE);
+						// Loop over y-bins for each x-bin of the 2D histogram and put it into the 1-d y histograms
+						// Take overflow bin into account 
+						for (int biny = 0 ; biny <= histos2D[ix][iy][igraph]->GetYaxis()->GetNbins()+1 ; biny++)
+						{
+							if (histos2D[ix][iy][igraph]->GetBinContent(binx,biny) != 0.)
+							{
+								histosYValues[ix][iy][igraph]->SetBinContent(biny,histos2D[ix][iy][igraph]->GetBinContent(binx,biny));
+								entries = true;
+							}
+						}
+						if (entries)
+						{							
+							histosYValues[ix][iy][igraph]->Fit("gaus");
+							gausFit[ix][iy][igraph] = histosYValues[ix][iy][igraph]->GetFunction("gaus");							
+							histos[ix][iy][igraph]->SetBinContent(binx,int(floor(gausFit[ix][iy][igraph]->GetParameter(1)+0.5)));
+							histos[ix][iy][igraph]->SetBinError(binx,int(floor(gausFit[ix][iy][igraph]->GetParameter(2)+0.5)));	
+						}
+
+					}
+					
+				}
+			}
+		}
+		
+#ifdef TALKATIVE
+    cout << __FILE__ << ":" << __LINE__ << ":Info: 100%\tLoop ended" << endl;
+#endif
+
+    // creating TLegend
+    TLegend * legend = MakeLegend(.1,.92,.9,1.);
+    
+    gROOT->SetBatch(_batchMode);
+    
+    
+    for (unsigned int ic = 0 ; ic <= NB_SUBLEVELS ; ic++)
+    {
+       
+        c_global_hist[ic] = new TCanvas (TString::Format("global_profile_plots_%s_%d", ic==0?"tracker":_sublevel_names[ic-1].Data(),
+                                                                    canvas_profile_index),
+                                    TString::Format("Global overview profile plots of the %s variables", ic==0?"tracker":_sublevel_names[ic-1].Data()),
+                                   _window_width,
+                                   _window_height);
+        c_global_hist[ic]->Divide(x.size(),y.size());
+    }
+      
+
+#define INDEX_IN_GLOBAL_CANVAS(i1,i2) 1 + i1 + i2*x.size()
+    // running on the histograms to draw them
+    for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+    {
+#ifdef DEBUG
+        cout << __FILE__ << ":" << __LINE__ << ":Info: x[" << ix << "]="<< x[ix] << endl;
+#endif
+
+        // looping on Y axes
+        for (unsigned int iy = 0 ; iy < y.size() ; iy++)
+        {
+
+
+#ifdef DEBUG
+            cout << __FILE__ << ":" << __LINE__ << ":Info: x[" << ix << "]=" << x[ix]
+                                                <<   " and y[" << iy << "]=" << y[iy] 
+                                                <<   "\t-> creating TMultiGraph" << endl;
+#endif
+            /// TRACKER
+            // fixing ranges and draw profile plot histos
+            
+            c_hist[ix][iy][0] = new TCanvas (TString::Format("c_hist_%s_vs_%s_tracker_%d", x[ix].Data(),
+																						   y[iy].Data(),
+																						   canvas_profile_index),
+											TString::Format("Profile plot %s vs. %s at tracker level", x[ix].Data(),
+																									   y[iy].Data()),
+																									   _window_width,
+																									   _window_height);
+			c_hist[ix][iy][0]->SetGrid(_grid_x,_grid_y); // grid
+			// Draw the frame that will contain the histograms
+			// One needs to specify the binning and title
+			c_hist[ix][iy][0]->GetPad(0)->DrawFrame(_min[x[ix]],
+													dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
+													_max[x[ix]],
+													dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]],
+													TString (";") + LateXstyle(x[ix]) + " /" + _units[x[ix]]
+													+ TString (";") + LateXstyle(y[iy]) + " /" + _units[y[iy]]);
+			if (_legend) legend->Draw("same"); 
+                
+            for (unsigned short int jgraph = 0 ; jgraph < NB_SUBLEVELS*NB_Z_SLICES ; jgraph++)
+            {
+                unsigned short int igraph = NB_SUBLEVELS*NB_Z_SLICES - jgraph - 1; // reverse counting for humane readability (one of the sublevel takes much more place than the others)
+#ifdef DEBUG
+                cout << __FILE__ << ":" << __LINE__ << ":Info: writing TGraph to file" << endl;
+#endif
+
+#ifdef DEBUG
+                cout << __FILE__ << ":" << __LINE__ << ":Info: cloning, coloring and adding TGraph "
+                                                    << _sublevel_names[igraph%NB_SUBLEVELS] 
+                                                    << (igraph >= NB_SUBLEVELS ? "(z<0)" : "(z>0)")
+                                                    << " to global TMultiGraph" << endl;
+#endif
+                // clone to prevent any injure on the graph
+                histosTracker[ix][iy][igraph] = (TH1F *) histos[ix][iy][igraph]->Clone();
+                // color
+                histosTracker[ix][iy][igraph]->SetMarkerColor(COLOR_CODE(igraph%NB_SUBLEVELS));
+	            histosTracker[ix][iy][igraph]->SetLineColor(COLOR_CODE(igraph%NB_SUBLEVELS));
+	            histosTracker[ix][iy][igraph]->SetMarkerStyle(6);
+	            histosTracker[ix][iy][igraph]->Draw("same pe0");
+   
+            }
+            
+            if (_print && _print_only_global != "true") c_hist[ix][iy][0]->Print(_output_directory 
+														+ TString::Format("Profile_plot_%s_vs_%s_tracker_%d", x[ix].Data(), y[iy].Data(), canvas_profile_index)
+														+ ExtensionFromPrintOption(_print_option),
+														_print_option);
+
+            //Draw into profile hists global tracker canvas
+            c_global_hist[0]->cd(INDEX_IN_GLOBAL_CANVAS(ix,iy)); 
+			c_global_hist[0]->GetPad(INDEX_IN_GLOBAL_CANVAS(ix,iy))->SetFillStyle(4000); //  make the pad transparent
+			c_global_hist[0]->GetPad(INDEX_IN_GLOBAL_CANVAS(ix,iy))->SetGrid(_grid_x,_grid_y); // grid
+			c_global_hist[0]->GetPad(INDEX_IN_GLOBAL_CANVAS(ix,iy))->DrawFrame(_min[x[ix]],
+													dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
+													_max[x[ix]],
+													dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]],
+													TString (";") + LateXstyle(x[ix]) + " /" + _units[x[ix]]
+													+ TString (";") + LateXstyle(y[iy]) + " /" + _units[y[iy]]);
+			
+			for (unsigned short int jgraph = 0 ; jgraph < NB_SUBLEVELS*NB_Z_SLICES ; jgraph++)
+            {
+                unsigned short int igraph = NB_SUBLEVELS*NB_Z_SLICES - jgraph - 1; // reverse counting for humane readability (one of the sublevel takes much more place than the others)
+                histosTracker[ix][iy][igraph]->Draw("same pe0");
+			}
+			// printing will be performed after customisation (e.g. legend or title) just after the loops on ix and iy
+            /// SUBLEVELS (1..6)
+            for (unsigned int isublevel = 1 ; isublevel <= NB_SUBLEVELS ; isublevel++)
+            {
+#ifdef DEBUG
+                cout << __FILE__ << ":" << __LINE__ << ":Info: cloning, coloring and adding TGraph "
+                                                    << _sublevel_names[isublevel-1] << " to sublevel TMultiGraph" << endl;
+#endif
+  
+#if NB_Z_SLICES!=2
+                cout << __FILE__ << ":" << __LINE__ << ":Error: color code incomplete for Z slices..." << endl;
+#endif
+
+				// Draw and print profile histograms
+                c_hist[ix][iy][isublevel] = new TCanvas (TString::Format("c_hist_%s_vs_%s_%s_%d", x[ix].Data(),
+                                                                                   y[iy].Data(),
+                                                                                   isublevel==0?"tracker":_sublevel_names[isublevel-1].Data(),
+                                                                                   canvas_profile_index),
+                                               TString::Format("Profile plot %s vs. %s at %s level", x[ix].Data(),
+                                                                                        y[iy].Data(),
+                                                                                        isublevel==0?"tracker":_sublevel_names[isublevel-1].Data()),
+                                               _window_width,
+                                               _window_height);
+                c_hist[ix][iy][isublevel]->SetGrid(_grid_x,_grid_y); // grid
+                c_hist[ix][iy][isublevel]->GetPad(0)->DrawFrame(_min[x[ix]],
+													dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
+													_max[x[ix]],
+													dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]],
+													TString (";") + LateXstyle(x[ix]) + " /" + _units[x[ix]]
+													+ TString (";") + LateXstyle(y[iy]) + " /" + _units[y[iy]]);
+                
+                histos[ix][iy][             isublevel-1]->SetMarkerColor(kBlack);
+                histos[ix][iy][             isublevel-1]->SetLineColor(kBlack);
+                histos[ix][iy][NB_SUBLEVELS+isublevel-1]->SetMarkerColor(kRed);
+                histos[ix][iy][NB_SUBLEVELS+isublevel-1]->SetLineColor(kRed);
+                
+                
+				histos[ix][iy][             isublevel-1]->Draw("same pe0");
+                histos[ix][iy][NB_SUBLEVELS+isublevel-1]->Draw("same pe0");
+                
+                if (_print && _print_only_global != "true") c_hist[ix][iy][isublevel]->Print(_output_directory 
+																+ TString::Format("Profile_plot_%s_vs_%s_%s_%d", x[ix].Data(), y[iy].Data(),_sublevel_names[isublevel-1].Data(), canvas_profile_index)
+																+ ExtensionFromPrintOption(_print_option),
+																_print_option);
+				
+				// draw into global canvas
+				// printing will be performed after customisation (e.g. legend or title) just after the loops on ix and iy
+				c_global_hist[isublevel]->cd(INDEX_IN_GLOBAL_CANVAS(ix,iy)); 
+                c_global_hist[isublevel]->GetPad(INDEX_IN_GLOBAL_CANVAS(ix,iy))->SetFillStyle(4000); //  make the pad transparent
+                c_global_hist[isublevel]->GetPad(INDEX_IN_GLOBAL_CANVAS(ix,iy))->SetGrid(_grid_x,_grid_y); // grid
+                c_global_hist[isublevel]->GetPad(INDEX_IN_GLOBAL_CANVAS(ix,iy))->DrawFrame(_min[x[ix]],
+													dyMin[iy] != -99999 ? dyMin[iy] : _min[y[iy]],
+													_max[x[ix]],
+													dyMax[iy] != -99999 ? dyMax[iy] : _max[y[iy]],
+													TString (";") + LateXstyle(x[ix]) + " /" + _units[x[ix]]
+													+ TString (";") + LateXstyle(y[iy]) + " /" + _units[y[iy]]);
+                
+
+				histos[ix][iy][             isublevel-1]->Draw("same pe0");
+                histos[ix][iy][NB_SUBLEVELS+isublevel-1]->Draw("same pe0");
+            }
+           
+        } // end of loop on y
+    }     // end of loop on x
+	
+    
+
+    // CUSTOMISATION
+    gStyle->SetOptTitle(0); // otherwise, the title is repeated in every pad of the global canvases
+                            // -> instead, we will write it in the upper part in a TPaveText or in a TLegend
+    for (unsigned int ic = 0 ; ic <= NB_SUBLEVELS ; ic++)
+    {
+        // setting legend to tracker canvases
+        if (!_legend) break;
+  
+        // setting legend to tracker canvases
+        if (!_legend) break;
+        TCanvas * c_temp_hist = (TCanvas *) c_global_hist[ic]->Clone(c_global_hist[ic]->GetTitle() + TString("_sub"));
+        c_temp_hist->Draw();
+        c_global_hist[ic] = new TCanvas (c_temp_hist->GetName() + TString("_final"), c_temp_hist->GetTitle(), c_temp_hist->GetWindowWidth(), c_temp_hist->GetWindowHeight());
+        c_global_hist[ic]->Draw();
+        TPad * p_up = new TPad (TString("legend_") + c_temp_hist->GetName(), "",
+                                    0., 0.9, 1., 1., // relative position
+                                    -1, 0, 0),       // display options
+             * p_down = new TPad (TString("main_") + c_temp_hist->GetName(), "",
+                                    0., 0., 1., 0.9,
+                                    -1, 0, 0);
+        // in the lower part, draw the plots
+        p_down->Draw();
+        p_down->cd();
+        c_temp_hist->DrawClonePad();
+        c_global_hist[ic]->cd();
+        // in the upper part, pimp the canvas :p
+        p_up->Draw();
+        p_up->cd();
+        if (ic == 0) // tracker
+        {
+            TLegend * global_legend = MakeLegend(.05,.1,.7,.8);//, "brNDC");
+            global_legend->Draw();
+            TPaveText * pt_geom = new TPaveText(.75,.1,.95,.8, "NB");
+            pt_geom->SetFillColor(0);
+            pt_geom->SetTextSize(0.25);
+            pt_geom->AddText(TString("x: ")+_reference_name);
+            pt_geom->AddText(TString("y: ")+_alignment_name+TString(" - ")+_reference_name);
+            pt_geom->Draw();
+        }
+        else         // sublevels
+        {
+            TPaveText * pt = new TPaveText(.05,.1,.7,.8, "NB");
+            pt->SetFillColor(0);
+            pt->AddText(_sublevel_names[ic-1]);
+            pt->Draw();
+            TPaveText * pt_geom = new TPaveText(.6,.1,.95,.8, "NB");
+            pt_geom->SetFillColor(0);
+            pt_geom->SetTextSize(0.3);
+            pt_geom->AddText(TString("x: ")+_reference_name);
+            pt_geom->AddText(TString("y: ")+_alignment_name+TString(" - ")+_reference_name);
+            pt_geom->Draw();
+        }
+        // printing
+        if (_print) c_global_hist[ic]->Print(_output_directory + c_global_hist[ic]->GetName() + ExtensionFromPrintOption(_print_option), _print_option);
+    }
+    
+#ifdef TALKATIVE
+    cout << __FILE__ << ":" << __LINE__ << ":Info: End of MakePlots method" << endl;
+#endif
+
+}
+
+
+// Make additional table for the mean/RMS values of differences
+void GeometryComparisonPlotter::MakeTables (vector<TString> x, // axes to combine to plot
+                                           vector<TString> y, // only requires the differences (y values in the plots) and ranges
+                                           vector<float> dyMin, // Minimum of y-variable to enable fixed ranges of the histogram
+                                           vector<float> dyMax) // Maximum of y-variable to enable fixed ranges of the histogram 
+{
+
+    /// -1) check that only existing branches are called 
+    // (we use a macro to avoid copy/paste)
+#define CHECK_BRANCHES(branchname_vector) \
+    for (unsigned int i = 0 ; i < branchname_vector.size() ; i++) \
+    {   \
+        if (branch_f.find(branchname_vector[i]) == branch_f.end()) \
+        {   \
+            cout << __FILE__ << ":" << __LINE__ << ":Error: The branch " << branchname_vector[i] << " is not recognised." << endl; \
+            return; \
+        }   \
+    }
+    CHECK_BRANCHES(x);
+    CHECK_BRANCHES(y);
+
+    const unsigned int nentries = data->GetEntries();
+
+#ifdef TALKATIVE
+    cout << __FILE__ << ":" << __LINE__ << ":Info: ";    INSIDE_VECTOR(x);   cout << endl;
+    cout << __FILE__ << ":" << __LINE__ << ":Info: ";    INSIDE_VECTOR(y);   cout << endl;
+#endif
+
+
+    /// 0) min and max values
+    // the max and min of the graphs are computed from the tree if they have not been manually input yet
+    // (we use a macro to avoid copy/paste)
+#define LIMITS(axes_vector) \
+    for (unsigned int i = 0 ; i < axes_vector.size() ; i++) \
+    {   \
+        if ( _SF.find(axes_vector[i]) ==  _SF.end())  _SF[axes_vector[i]] = 1.; \
+        if (_min.find(axes_vector[i]) == _min.end()) _min[axes_vector[i]] = _SF[axes_vector[i]]*data->GetMinimum(axes_vector[i]); \
+        if (_max.find(axes_vector[i]) == _max.end()) _max[axes_vector[i]] = _SF[axes_vector[i]]*data->GetMaximum(axes_vector[i]); \
+    }
+    LIMITS(x);
+    LIMITS(y);
+
+#ifdef TALKATIVE 
+    CHECK_MAP_CONTENT(_min,float);
+    CHECK_MAP_CONTENT(_max,float);
+    CHECK_MAP_CONTENT(_SF ,float);
+#endif
+
+    /// 1) declare histograms
+    // the idea is to produce at the end a table containing mean and RMS values
+    // for the different subdetectors - 0..5=different sublevels, seperately for z < or > 0
+    // (convention: the six first (resp. last) correspond to z>0 (resp. z<0))
+    // Four cases are considered: All modules, good modules + those in a list
+    // given by the user, good modules - those in the list, only good modules 
+    // This means that 4*2*6 histograms will be filled during the loop on the TTree
+    //
+    // Two version of the tables are produced. Once using Gaussian fits (more stable
+    // vs single outliers but might in rare cases not converge) and once using
+    // the mean and RMS of the histograms (more stable but outliers have a
+    // strong impact on the RMS)
+#ifndef NB_SUBLEVELS
+#define NB_SUBLEVELS 6
+#endif
+#define NB_Z_SLICES 2
+#define NB_X_SLICES 2
+ 
+    TH1F * histosx[x.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];  
+    float meanValuex[x.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];
+    float RMSx[x.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];      
+    
+    TH1F * histos[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];
+    TF1 * gausFit[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];
+    long int meanValue[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];
+    long int meanValueGaussian[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];
+    long int RMS[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];     
+    long int RMSGaussian[y.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES];      
+    
+	for (unsigned int iy = 0 ; iy < y.size() ; iy++)
+	{
+		for (unsigned int ihist = 0 ; ihist < NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES ; ihist++)
+		{
+			
+			// Create and correctly name a histogram for each subdetector*Z_Slice*X_Slice
+			histos[iy][ihist] = new TH1F ("hist"+y[iy]+_sublevel_names[ihist%NB_SUBLEVELS]
+														+TString(ihist%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "zn"      : "zp" )
+														+TString(ihist>=NB_SUBLEVELS*NB_Z_SLICES ? "xn"      : "xp" ),														
+														"",1000,
+														_min[y[iy]],
+														_max[y[iy]]+1.);
+			histos[iy][ihist]->StatOverflows(kTRUE);
+														
+		}
+	}
+
+	for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+	{
+		for (unsigned int ihist = 0 ; ihist < NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES ; ihist++)
+		{
+			
+			// Create and correctly name a histogram for each subdetector*Z_Slice*ModuleType
+			histosx[ix][ihist] = new TH1F ("histx"+x[ix]+_sublevel_names[ihist%NB_SUBLEVELS]
+														+TString(ihist%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "zn"      : "zp" )
+														+TString(ihist>=NB_SUBLEVELS*NB_Z_SLICES ? "xn"      : "xp" ),
+														"",1000,
+														_min[x[ix]],
+														_max[x[ix]]+1.);
+			histosx[ix][ihist]->StatOverflows(kTRUE);
+														
+		}
+	}
+
+#ifdef DEBUG
+    cout << __FILE__ << ":" << __LINE__ << ":Info: Creation of the TH1F[" << y.size() << "][" << NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES << "] ended." << endl;
+#endif
+
+    /// 2) loop on the TTree data
+#ifdef DEBUG
+    cout << __FILE__ << ":" << __LINE__ << ":Info: Looping on the TTree" << endl;
+#endif
+#ifdef TALKATIVE
+    unsigned int progress = 0;
+    cout << __FILE__ << ":" << __LINE__ << ":Info: 0%" << endl;
+#endif
+    for (unsigned int ientry = 0 ; ientry < nentries ; ientry++)
+    {
+#ifdef  TALKATIVE
+        if (10*ientry/nentries != progress)
+        {
+            progress = 10*ientry/nentries;
+            cout << __FILE__ << ":" << __LINE__ << ":Info: " << 10*progress << "%" << endl;
+        }
+#endif
+        // load current tree entry
+        data->GetEntry(ientry);
+
+        // CUTS on entry
+        if (branch_i["level"] != _levelCut)        continue;
+        if (!_1dModule && branch_i["detDim"] == 1) continue;
+        if (!_2dModule && branch_i["detDim"] == 2) continue;
+
+
+		for (unsigned int iy = 0 ; iy < y.size() ; iy++)
+		{			
+			if (branch_i["sublevel"] < 1 || branch_i["sublevel"] > NB_SUBLEVELS) continue;
+			if (_SF[y[iy]]*branch_f[y[iy]] > _max[y[iy]] || _SF[y[iy]]*branch_f[y[iy]] < _min[y[iy]])
+			{
+//#ifdef DEBUG
+//                    cout << "branch_f[y[iy]]=" << branch_f[y[iy]] << endl;
+//#endif
+				continue;
+			}
+
+			// FILLING HISTOGRAMS
+			
+			// histogram for all modules
+			const short int ihisto = (branch_i["sublevel"]-1) + (branch_f["z"]>=0?0:NB_SUBLEVELS) + (branch_f["x"]>=0?0:NB_SUBLEVELS*NB_Z_SLICES);
+			
+			if (_module_plot_option == "all") histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);
+			
+			// Only good modules
+			else if (_module_plot_option == "good" && branch_i["badModuleQuality"]==0) histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);
+			
+			// Only good modules and those in the list
+			else if (_module_plot_option == "list" && (branch_i["inModuleList"]==1 || branch_i["badModuleQuality"]==0)) histos[iy][ihisto]->Fill( _SF[y[iy]]*branch_f[y[iy]]);		
+			
+		}
+		
+		for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+		{			
+			if (branch_i["sublevel"] < 1 || branch_i["sublevel"] > NB_SUBLEVELS) continue;
+			if (_SF[x[ix]]*branch_f[x[ix]] > _max[x[ix]] || _SF[x[ix]]*branch_f[x[ix]] < _min[x[ix]])
+			{
+//#ifdef DEBUG
+//                    cout << "branch_f[y[iy]]=" << branch_f[y[iy]] << endl;
+//#endif
+				continue;
+			}
+
+			// FILLING HISTOGRAMS
+			
+			// histogram for all modules
+			const short int ihistosx = (branch_i["sublevel"]-1) + (branch_f["z"]>=0?0:NB_SUBLEVELS) + (branch_f["x"]>=0?0:NB_SUBLEVELS*NB_Z_SLICES);
+			
+			if (_module_plot_option == "all") histosx[ix][ihistosx]->Fill( _SF[x[ix]]*branch_f[x[ix]]);
+			
+			// Only good modules
+			else if (_module_plot_option == "good" && branch_i["badModuleQuality"]==0) histosx[ix][ihistosx]->Fill( _SF[x[ix]]*branch_f[x[ix]]);
+			
+			// Only good modules and those in the list
+			else if (_module_plot_option == "list" && (branch_i["inModuleList"]==1 || branch_i["badModuleQuality"]==0)) histosx[ix][ihistosx]->Fill( _SF[x[ix]]*branch_f[x[ix]]);	
+			
+		}
+    }
+#ifdef TALKATIVE
+    cout << __FILE__ << ":" << __LINE__ << ":Info: 100%\tLoop ended" << endl;
+#endif
+
+	//~ TString rangeLabel = "";
+	// Calculate mean and standard deviation for each histogram
+	for (unsigned int iy = 0 ; iy < y.size() ; iy++)
+	{
+		
+		for (unsigned int ihist = 0 ; ihist < NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES ; ihist++)
+		{
+			// combine +/-z histograms for barrel detectors
+			if (ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 0 || ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 2 ||  ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 4) {
+				histos[iy][ihist]->Add(histos[iy][ihist+NB_SUBLEVELS]);
+			}			
+			// combine +/-x histograms for endcap detectors (only used for half shells in barrel)
+			if (ihist < NB_SUBLEVELS*NB_Z_SLICES && ( ihist%NB_SUBLEVELS == 1 || ihist%NB_SUBLEVELS == 3 ||  ihist%NB_SUBLEVELS  == 5)) {
+				histos[iy][ihist]->Add(histos[iy][ihist+NB_SUBLEVELS*NB_Z_SLICES]);
+			}
+			meanValue[iy][ihist] = histos[iy][ihist]->GetMean();
+			RMS[iy][ihist] = histos[iy][ihist]->GetRMS();
+			
+			histos[iy][ihist]->Fit("gaus");
+			gausFit[iy][ihist] = histos[iy][ihist]->GetFunction("gaus");
+			meanValueGaussian[iy][ihist] = int(floor(gausFit[iy][ihist]->GetParameter(1)+0.5));
+			RMSGaussian[iy][ihist] = int(floor(gausFit[iy][ihist]->GetParameter(2)+0.5));	
+			
+			
+														
+		}
+	}
+	
+	for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+	{
+		
+		for (unsigned int ihist = 0 ; ihist < NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES ; ihist++)
+		{
+			// combine +/-z histograms for barrel detectors
+			if (ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 0 || ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 2 ||  ihist%(NB_SUBLEVELS*NB_Z_SLICES) == 4)  {
+				histosx[ix][ihist]->Add(histosx[ix][ihist+NB_SUBLEVELS]);
+			}			
+			// combine +/-x histograms for endcap detectors (only used for half shells in barrel)
+			if (ihist < NB_SUBLEVELS*NB_Z_SLICES && ( ihist%NB_SUBLEVELS == 1 || ihist%NB_SUBLEVELS == 3 ||  ihist%NB_SUBLEVELS  == 5) ) {
+				histosx[ix][ihist]->Add(histosx[ix][ihist+NB_SUBLEVELS*NB_Z_SLICES]);
+			}	
+			meanValuex[ix][ihist] = histosx[ix][ihist]->GetMean();
+			RMSx[ix][ihist] = histosx[ix][ihist]->GetRMS();					
+														
+		}
+	}
+	
+	TString tableFileName,tableCaption,tableAlign,tableHeadline;	
+	TString PXBpLine,PXBmLine,PXFpLine,PXFmLine,TIBpLine,TIBmLine,TOBpLine,TOBmLine,TIDpLine,TIDmLine,TECpLine,TECmLine;	
+	
+	
+	// table using mean and RMS
+	tableFileName = "table_differences.tex";
+	if (_module_plot_option == "all") tableCaption = "Means and standard deviations of "+_alignment_name+" - "+_reference_name+" for each subdetector, all modules used.";
+	else if (_module_plot_option == "good") tableCaption = "Means and standard deviations of "+_alignment_name+" - "+_reference_name+" for each subdetector, only good modules used.";
+	else if (_module_plot_option == "list") tableCaption = "Means and standard deviations of "+_alignment_name+" - "+_reference_name+" for each subdetector, good modules and those in given list used.";
+	
+	tableAlign = "l";
+	tableHeadline = "";
+	PXBpLine = "PXB x+";
+	PXBmLine = "PXB x$-$";
+	PXFpLine = "PXF z+";
+	PXFmLine = "PXF z$-$";
+	TIBpLine = "TIB x+";
+	TIBmLine = "TIB x$-$";
+	TIDpLine = "TID z+";
+	TIDmLine = "TID z$-$";
+	TOBpLine = "TOB x+";
+	TOBmLine = "TOB x$-$";
+	TECpLine = "TEC z+";
+	TECmLine = "TEC z$-$";
+	for (unsigned int iy = 0 ; iy < y.size() ; iy++) {
+		tableAlign += "|c";
+		tableHeadline += " & " + LateXstyleTable(y[iy]) + " / " + _units[y[iy]].ReplaceAll("#mum", "$\\mu$m");
+		PXBpLine += " & $"  + std::to_string(meanValue[iy][0]) + "\\pm" + std::to_string(RMS[iy][0]) + " $";
+		PXBmLine += " & $"  + std::to_string(meanValue[iy][12]) + "\\pm" + std::to_string(RMS[iy][12]) + " $";
+		PXFpLine += " & $"  + std::to_string(meanValue[iy][1]) + "\\pm" + std::to_string(RMS[iy][1]) + " $";
+		PXFmLine += " & $"  + std::to_string(meanValue[iy][7]) + "\\pm" + std::to_string(RMS[iy][7]) + " $";
+		TIBpLine += " & $"  + std::to_string(meanValue[iy][2]) + "\\pm" + std::to_string(RMS[iy][2]) + " $";
+		TIBmLine += " & $"  + std::to_string(meanValue[iy][14]) + "\\pm" + std::to_string(RMS[iy][14]) + " $";
+		TIDpLine += " & $"  + std::to_string(meanValue[iy][3]) + "\\pm" + std::to_string(RMS[iy][3]) + " $";
+		TIDmLine += " & $"  + std::to_string(meanValue[iy][9]) + "\\pm" + std::to_string(RMS[iy][9]) + " $";
+		TOBpLine += " & $"  + std::to_string(meanValue[iy][4]) + "\\pm" + std::to_string(RMS[iy][4]) + " $";
+		TOBmLine += " & $"  + std::to_string(meanValue[iy][16]) + "\\pm" + std::to_string(RMS[iy][16]) + " $";
+		TECpLine += " & $"  + std::to_string(meanValue[iy][5]) + "\\pm" + std::to_string(RMS[iy][5]) + " $";
+		TECmLine += " & $"  + std::to_string(meanValue[iy][11]) + "\\pm" + std::to_string(RMS[iy][11]) + " $";
+	}
+	
+		
+	std::ofstream output(_output_directory+tableFileName); // possibly existing file will be updated, otherwise created
+		
+	// Write the table to the tex file
+	output << "\\begin{table}" << std::endl;
+	output << "\\caption{" << tableCaption << "}" << std::endl;
+	output << "\\begin{tabular}{"<< tableAlign <<"}" << std::endl;
+	output << "\\hline" << std::endl;
+	output << tableHeadline << " \\\\" << std::endl;
+	output << "\\hline" << std::endl;
+	output << PXBpLine << " \\\\"<< std::endl;
+	output << PXBmLine << " \\\\"<< std::endl;
+	output << PXFpLine << " \\\\"<< std::endl;
+	output << PXFmLine << " \\\\"<< std::endl;
+	output << TIBpLine << " \\\\"<< std::endl;
+	output << TIBmLine << " \\\\"<< std::endl;
+	output << TIDpLine << " \\\\"<< std::endl;
+	output << TIDmLine << " \\\\"<< std::endl;
+	output << TOBpLine << " \\\\"<< std::endl;
+	output << TOBmLine << " \\\\"<< std::endl;
+	output << TECpLine << " \\\\"<< std::endl;
+	output << TECmLine << " \\\\"<< std::endl;
+	output << "\\hline" << std::endl;
+	output << "\\end{tabular}" << std::endl;
+	output << "\\end{table}" << std::endl;
+	
+		
+	//~ // table using  Gaussian fit
+	tableFileName = "table_differences_Gaussian.tex";
+	if (_module_plot_option == "all") tableCaption = "Means and standard deviations for Gaussian fit of "+_alignment_name+" - "+_reference_name+" for each subdetector, all modules used.";
+	else if (_module_plot_option == "good") tableCaption = "Means and standard deviations for Gaussian fit of "+_alignment_name+" - "+_reference_name+" for each subdetector, only good modules used.";
+	else if (_module_plot_option == "list") tableCaption = "Means and standard deviations for Gaussian fit of "+_alignment_name+" - "+_reference_name+" for each subdetector, good modules and those in given list used.";
+	
+	PXBpLine = "PXB x+";
+	PXBmLine = "PXB x$-$";
+	PXFpLine = "PXF z+";
+	PXFmLine = "PXF z$-$";
+	TIBpLine = "TIB x+";
+	TIBmLine = "TIB x$-$";
+	TIDpLine = "TID z+";
+	TIDmLine = "TID z$-$";
+	TOBpLine = "TOB x+";
+	TOBmLine = "TOB x$-$";
+	TECpLine = "TEC z+";
+	TECmLine = "TEC z$-$";
+	for (unsigned int iy = 0 ; iy < y.size() ; iy++) {
+		PXBpLine += " & $"  + std::to_string(meanValueGaussian[iy][0]) + "\\pm" + std::to_string(RMSGaussian[iy][0]) + " $";
+		PXBmLine += " & $"  + std::to_string(meanValueGaussian[iy][12]) + "\\pm" + std::to_string(RMSGaussian[iy][12]) + " $";
+		PXFpLine += " & $"  + std::to_string(meanValueGaussian[iy][1]) + "\\pm" + std::to_string(RMSGaussian[iy][1]) + " $";
+		PXFmLine += " & $"  + std::to_string(meanValueGaussian[iy][7]) + "\\pm" + std::to_string(RMSGaussian[iy][7]) + " $";
+		TIBpLine += " & $"  + std::to_string(meanValueGaussian[iy][2]) + "\\pm" + std::to_string(RMSGaussian[iy][2]) + " $";
+		TIBmLine += " & $"  + std::to_string(meanValueGaussian[iy][14]) + "\\pm" + std::to_string(RMSGaussian[iy][14]) + " $";
+		TIDpLine += " & $"  + std::to_string(meanValueGaussian[iy][3]) + "\\pm" + std::to_string(RMSGaussian[iy][3]) + " $";
+		TIDmLine += " & $"  + std::to_string(meanValueGaussian[iy][9]) + "\\pm" + std::to_string(RMSGaussian[iy][9]) + " $";
+		TOBpLine += " & $"  + std::to_string(meanValueGaussian[iy][4]) + "\\pm" + std::to_string(RMSGaussian[iy][4]) + " $";
+		TOBmLine += " & $"  + std::to_string(meanValueGaussian[iy][16]) + "\\pm" + std::to_string(RMSGaussian[iy][16]) + " $";
+		TECpLine += " & $"  + std::to_string(meanValueGaussian[iy][5]) + "\\pm" + std::to_string(RMSGaussian[iy][5]) + " $";
+		TECmLine += " & $"  + std::to_string(meanValueGaussian[iy][11]) + "\\pm" + std::to_string(RMSGaussian[iy][11]) + " $";
+	}	
+		
+	std::ofstream outputGaussian(_output_directory+tableFileName); // possibly existing file will be updated, otherwise created
+		
+	// Write the table to the tex file
+	outputGaussian << "\\begin{table}" << std::endl;
+	outputGaussian << "\\caption{" << tableCaption << "}" << std::endl;
+	outputGaussian << "\\begin{tabular}{"<< tableAlign <<"}" << std::endl;
+	outputGaussian << "\\hline" << std::endl;
+	outputGaussian << tableHeadline << " \\\\" << std::endl;
+	outputGaussian << "\\hline" << std::endl;
+	outputGaussian << PXBpLine << " \\\\"<< std::endl;
+	outputGaussian << PXBmLine << " \\\\"<< std::endl;
+	outputGaussian << PXFpLine << " \\\\"<< std::endl;
+	outputGaussian << PXFmLine << " \\\\"<< std::endl;
+	outputGaussian << TIBpLine << " \\\\"<< std::endl;
+	outputGaussian << TIBmLine << " \\\\"<< std::endl;
+	outputGaussian << TIDpLine << " \\\\"<< std::endl;
+	outputGaussian << TIDmLine << " \\\\"<< std::endl;
+	outputGaussian << TOBpLine << " \\\\"<< std::endl;
+	outputGaussian << TOBmLine << " \\\\"<< std::endl;
+	outputGaussian << TECpLine << " \\\\"<< std::endl;
+	outputGaussian << TECmLine << " \\\\"<< std::endl;
+	outputGaussian << "\\hline" << std::endl;
+	outputGaussian << "\\end{tabular}" << std::endl;
+	outputGaussian << "\\end{table}" << std::endl;
+		
+		      
+
+
+	// Table for the mean positions on the x-axis
+	tableFileName = "table_meanPos.tex";	
+	
+	std::ofstream outputx(_output_directory+tableFileName); // possibly existing file will be updated, otherwise created
+	
+	if (_module_plot_option == "all") tableCaption = "Mean positions and standard deviations in "+_reference_name+" geometry for each subdetector, all modules used.";
+	else if (_module_plot_option == "good") tableCaption = "Mean positions and standard deviations in "+_reference_name+" geometry for each subdetector, only good modules used.";
+	else if (_module_plot_option == "list") tableCaption = "Mean positions and standard deviations in "+_reference_name+" geometry for each subdetector, good modules and those in given list used.";
+	
+	tableAlign = "l";
+	tableHeadline = "";
+	PXBpLine = "PXB x+";
+	PXBmLine = "PXB x$-$";
+	PXFpLine = "PXF z+";
+	PXFmLine = "PXF z$-$";
+	TIBpLine = "TIB x+";
+	TIBmLine = "TIB x$-$";
+	TIDpLine = "TID z+";
+	TIDmLine = "TID z$-$";
+	TOBpLine = "TOB x+";
+	TOBmLine = "TOB x$-$";
+	TECpLine = "TEC z+";
+	TECmLine = "TEC z$-$";
+	
+	char meanCharX[x.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES][10];
+	char RMSCharX[x.size()][NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES][10];
+	
+	for (unsigned int ix = 0 ; ix < x.size() ; ix++)
+	{
+		for (unsigned int isubDet = 0 ; isubDet < NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES; isubDet++)
+		{
+			sprintf(meanCharX[ix][isubDet],"%.3f",meanValuex[ix][isubDet]);
+			sprintf(RMSCharX[ix][isubDet],"%.3f",RMSx[ix][isubDet]);
+		}
+		tableAlign += "|c";
+		tableHeadline += " & " + LateXstyleTable(x[ix]) + " / " + _units[x[ix]].ReplaceAll("#mum", "$\\mu$m");
+		
+		PXBpLine += " & $"; PXBpLine += meanCharX[ix][0]; PXBpLine += "\\pm"; PXBpLine += RMSCharX[ix][0]; PXBpLine += " $";
+		PXBmLine += " & $"; PXBmLine += meanCharX[ix][12]; PXBmLine += "\\pm"; PXBmLine += RMSCharX[ix][12]; PXBmLine += " $";
+		PXFpLine += " & $"; PXFpLine += meanCharX[ix][1]; PXFpLine += "\\pm"; PXFpLine += RMSCharX[ix][1]; PXFpLine += " $";
+		PXFmLine += " & $"; PXFmLine += meanCharX[ix][7]; PXFmLine += "\\pm"; PXFmLine += RMSCharX[ix][7]; PXFmLine += " $";
+		TIBpLine += " & $"; TIBpLine += meanCharX[ix][2]; TIBpLine += "\\pm"; TIBpLine += RMSCharX[ix][2]; TIBpLine += " $";
+		TIBmLine += " & $"; TIBmLine += meanCharX[ix][14]; TIBmLine += "\\pm"; TIBmLine += RMSCharX[ix][14]; TIBmLine += " $";
+		TIDpLine += " & $"; TIDpLine += meanCharX[ix][3]; TIDpLine += "\\pm"; TIDpLine += RMSCharX[ix][3]; TIDpLine += " $";
+		TIDmLine += " & $"; TIDmLine += meanCharX[ix][9]; TIDmLine += "\\pm"; TIDmLine += RMSCharX[ix][9]; TIDmLine += " $";
+		TOBpLine += " & $"; TOBpLine += meanCharX[ix][4]; TOBpLine += "\\pm"; TOBpLine += RMSCharX[ix][4]; TOBpLine += " $";
+		TOBmLine += " & $"; TOBmLine += meanCharX[ix][16]; TOBmLine += "\\pm"; TOBmLine += RMSCharX[ix][16]; TOBmLine += " $";
+		TECpLine += " & $"; TECpLine += meanCharX[ix][5]; TECpLine += "\\pm"; TECpLine += RMSCharX[ix][5]; TECpLine += " $";
+		TECmLine += " & $"; TECmLine += meanCharX[ix][11]; TECmLine += "\\pm"; TECmLine += RMSCharX[ix][11]; TECmLine += " $";
+	}	
+	
+	// Write the table to the tex file
+	outputx << "\\begin{table}" << std::endl;
+	outputx << "\\caption{" << tableCaption << "}" << std::endl;
+	outputx << "\\begin{tabular}{"<< tableAlign <<"}" << std::endl;
+	outputx << "\\hline" << std::endl;
+	outputx << tableHeadline << " \\\\" << std::endl;
+	outputx << "\\hline" << std::endl;
+	outputx << PXBpLine << " \\\\"<< std::endl;
+	outputx << PXBmLine << " \\\\"<< std::endl;
+	outputx << PXFpLine << " \\\\"<< std::endl;
+	outputx << PXFmLine << " \\\\"<< std::endl;
+	outputx << TIBpLine << " \\\\"<< std::endl;
+	outputx << TIBmLine << " \\\\"<< std::endl;
+	outputx << TIDpLine << " \\\\"<< std::endl;
+	outputx << TIDmLine << " \\\\"<< std::endl;
+	outputx << TOBpLine << " \\\\"<< std::endl;
+	outputx << TOBmLine << " \\\\"<< std::endl;
+	outputx << TECpLine << " \\\\"<< std::endl;
+	outputx << TECmLine << " \\\\"<< std::endl;
+	outputx << "\\hline" << std::endl;
+	outputx << "\\end{tabular}" << std::endl;
+	outputx << "\\end{table}" << std::endl;
+	
+	
+	
+		  
+
+	
+#ifdef TALKATIVE
+    cout << __FILE__ << ":" << __LINE__ << ":Info: End of MakeLegends method" << endl;
 #endif
 
 }
@@ -710,6 +1631,19 @@ TString GeometryComparisonPlotter::LateXstyle (TString word)
     else if (word.EndsWith("beta"))    word.ReplaceAll("beta" , "#beta");
     else if (word.EndsWith("gamma"))   word.ReplaceAll("gamma", "#gamma");
     else if (word.EndsWith("eta"))     word.ReplaceAll("eta", "#eta");
+    return word;
+}
+
+TString GeometryComparisonPlotter::LateXstyleTable (TString word)
+{
+    word.ToLower();
+    if (word.BeginsWith("d"))          word.ReplaceAll("d", "$\\Delta$");
+    if      (word == TString("rdphi")) word = "r$\\Delta\\phi$";            // TO DO: find something less ad hoc...
+    else if (word.EndsWith("phi"))     word.ReplaceAll("phi", "$\\phi$");
+    else if (word.EndsWith("alpha"))   word.ReplaceAll("alpha", "$\\alpha$");
+    else if (word.EndsWith("beta"))    word.ReplaceAll("beta" , "$\\beta$");
+    else if (word.EndsWith("gamma"))   word.ReplaceAll("gamma", "#$\\gamma$");
+    else if (word.EndsWith("eta"))     word.ReplaceAll("eta", "$\\eta$");
     return word;
 }
 

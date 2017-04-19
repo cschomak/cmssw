@@ -19,6 +19,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////
 
 int GeometryComparisonPlotter::canvas_index = 0;
+int GeometryComparisonPlotter::canvas_profile_index = 0;
 
 
 void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTracker.root",
@@ -29,6 +30,7 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
                        TString useDefaultRange= "false",
                        TString plotOnlyGlobal= "false",
                        TString plotPng= "true",
+                       TString makeProfilePlots= "true",
                        float dx_min = -99999,
                        float dx_max = -99999,
                        float dy_min = -99999,
@@ -121,10 +123,12 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
     // x and y contain the couples to plot
     // -> every combination possible will be performed
     // /!\ always give units (otherwise, unexpected bug from root...)
-    vector<TString> x,y;
+    vector<TString> x,y, xmean;
     vector<float> dyMin,dyMax;
     x.push_back("r");                                           	trans->SetBranchUnits("r",     "cm");
     x.push_back("phi");                                         	trans->SetBranchUnits("phi",   "rad");
+    //~ x.push_back("x");                                           	trans->SetBranchUnits("x",     "cm");      //trans->SetBranchMax("z", 100); trans->SetBranchMin("z", -100);
+    //~ x.push_back("y");                                           	trans->SetBranchUnits("y",     "cm");      //trans->SetBranchMax("z", 100); trans->SetBranchMin("z", -100);
     x.push_back("z");                                           	trans->SetBranchUnits("z",     "cm");      //trans->SetBranchMax("z", 100); trans->SetBranchMin("z", -100);
     y.push_back("dr");		trans->SetBranchSF("dr", 	10000);     trans->SetBranchUnits("dr",    "#mum");
     dyMin.push_back(dr_min);
@@ -142,14 +146,26 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
     dyMin.push_back(dy_min);
     dyMax.push_back(dy_max);
     
+    xmean.push_back("x");                                         	
+    trans->SetBranchUnits("x",     "cm");
+    xmean.push_back("y");                                           	
+    trans->SetBranchUnits("y",   "cm");
+    xmean.push_back("z");                         
+    xmean.push_back("r");                     
+    
+    
     trans->SetGrid(1,1);
-    trans->MakePlots(x, y, dyMin, dyMax); // default output is pdf, but png gives a nicer result, so we use it as well
+    trans->MakePlots(xmean, y, dyMin, dyMax); // default output is pdf, but png gives a nicer result, so we use it as well
+    if (makeProfilePlots)  trans->MakeProfilePlots(xmean, y, dyMin, dyMax);
     // remark: what takes the more time is the creation of the output files,
     //         not the looping on the tree (because the code is perfect, of course :p)
     if (plotPng=="true"){
 	    trans->SetPrintOption("png");
 	    trans->MakePlots(x, y, dyMin, dyMax);
+	    if (makeProfilePlots)  trans->MakeProfilePlots(x, y, dyMin, dyMax);
 	}
+	
+	trans->MakeTables(xmean,y,dyMin,dyMax);
 
     
     // Plot Rotations
@@ -177,10 +193,10 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
  
     rot->SetGrid(1,1);
     rot->SetPrintOption("pdf");
-    rot->MakePlots(x, b,dbMin, dbMax);
+    //~ rot->MakePlots(x, b,dbMin, dbMax);
     if (plotPng=="true"){
 	    rot->SetPrintOption("png");
-	    rot->MakePlots(x, b,dbMin, dbMax);
+	    //~ rot->MakePlots(x, b,dbMin, dbMax);
 	}	
     
 
