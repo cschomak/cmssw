@@ -191,10 +191,10 @@ void comparisonScript (TString inFile,//="mp1510_vs_mp1509.Comparison_commonTrac
  
     rot->SetGrid(1,1);
     rot->SetPrintOption("pdf");
-    //~ rot->MakePlots(x, b,dbMin, dbMax);
+    rot->MakePlots(x, b,dbMin, dbMax);
     if (plotPng=="true"){
 	    rot->SetPrintOption("png");
-	    //~ rot->MakePlots(x, b,dbMin, dbMax);
+	    rot->MakePlots(x, b,dbMin, dbMax);
 	}	
     
 
