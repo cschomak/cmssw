@@ -734,13 +734,13 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 #define NB_Z_SLICES 2
     
     // histograms for profile plots, 
+    // 2D-hists to store the data
     // 1D-hists to calculate mean and sigma of y-values for each x-bin of the 2D-hists and for the final profile hist
-    // This is done by using a gaussian fit.
+    TH2F * histos2D[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
     TH1F * histos[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
     TH1F * histosYValues[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; // Used to calculate the mean and RMS for each x-bin of the 2D-hist
-    TF1 * gausFit[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; 
     TH1F * histosTracker[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES]; // for the tracker plots all histos are copied to avoid using the same hists in different canvas
-    TH2F * histos2D[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
+    
     
     long int ipoint[x.size()][y.size()][NB_SUBLEVELS*NB_Z_SLICES];
     
@@ -880,7 +880,7 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 						// Take overflow bin into account 
 						for (int biny = 0 ; biny <= histos2D[ix][iy][igraph]->GetYaxis()->GetNbins()+1 ; biny++)
 						{
-							if (histos2D[ix][iy][igraph]->GetBinContent(binx,biny) != 0.)
+							if (histos2D[ix][iy][igraph]->GetBinContent(binx,biny) > 4.)
 							{
 								histosYValues[ix][iy][igraph]->SetBinContent(biny,histos2D[ix][iy][igraph]->GetBinContent(binx,biny));
 								entries = true;
@@ -888,10 +888,8 @@ void GeometryComparisonPlotter::MakeProfilePlots (vector<TString> x, // axes to 
 						}
 						if (entries)
 						{							
-							histosYValues[ix][iy][igraph]->Fit("gaus");
-							gausFit[ix][iy][igraph] = histosYValues[ix][iy][igraph]->GetFunction("gaus");							
-							histos[ix][iy][igraph]->SetBinContent(binx,int(floor(gausFit[ix][iy][igraph]->GetParameter(1)+0.5)));
-							histos[ix][iy][igraph]->SetBinError(binx,int(floor(gausFit[ix][iy][igraph]->GetParameter(2)+0.5)));	
+							histos[ix][iy][igraph]->SetBinContent(binx,histosYValues[ix][iy][igraph]->GetMean());
+							histos[ix][iy][igraph]->SetBinError(binx,histosYValues[ix][iy][igraph]->GetRMS());	
 						}
 
 					}
