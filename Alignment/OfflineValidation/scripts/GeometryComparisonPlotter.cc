@@ -783,7 +783,7 @@ void GeometryComparisonPlotter::MakePlots (vector<TString> x, // axes to combine
 																	"",histos2D[ix][iy][igraph]->GetYaxis()->GetNbins(),
 																	_min[y[iy]],
 																	_max[y[iy]]+1.);
-						histosYValues[ix][iy][igraph]->StatOverflows(kTRUE);
+						histosYValues[ix][iy][igraph]->StatOverflows(kTRUE);						
 						// Loop over y-bins for each x-bin of the 2D histogram and put it into the 1-d y histograms
 						// Take overflow bin into account 
 						for (int biny = 0 ; biny <= histos2D[ix][iy][igraph]->GetYaxis()->GetNbins()+1 ; biny++)
@@ -1076,7 +1076,7 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> x, // axes to combin
 			histos[iy][ihist] = new TH1F ("hist"+y[iy]+_sublevel_names[ihist%NB_SUBLEVELS]
 														+TString(ihist%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "zn"      : "zp" )
 														+TString(ihist>=NB_SUBLEVELS*NB_Z_SLICES ? "xn"      : "xp" ),														
-														"",1000,
+														"",static_cast<int>(_max[y[iy]] - _min[y[iy]]),
 														_min[y[iy]],
 														_max[y[iy]]+1.);
 			histos[iy][ihist]->StatOverflows(kTRUE);
@@ -1093,7 +1093,7 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> x, // axes to combin
 			histosx[ix][ihist] = new TH1F ("histx"+x[ix]+_sublevel_names[ihist%NB_SUBLEVELS]
 														+TString(ihist%(NB_SUBLEVELS*NB_Z_SLICES)>=NB_SUBLEVELS ? "zn"      : "zp" )
 														+TString(ihist>=NB_SUBLEVELS*NB_Z_SLICES ? "xn"      : "xp" ),
-														"",1000,
+														"",static_cast<int>(_max[x[ix]] - _min[x[ix]]),
 														_min[x[ix]],
 														_max[x[ix]]+1.);
 			histosx[ix][ihist]->StatOverflows(kTRUE);
@@ -1205,12 +1205,11 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> x, // axes to combin
 			meanValue[iy][ihist] = histos[iy][ihist]->GetMean();
 			RMS[iy][ihist] = histos[iy][ihist]->GetRMS();
 			
-			histos[iy][ihist]->Fit("gaus");
+			// Use mean and RMS from histogram to restrict the Gaussian fit to be less sensitive to single outliers
+			histos[iy][ihist]->Fit("gaus","","",meanValue[iy][ihist]-5*RMS[iy][ihist],meanValue[iy][ihist]+5*RMS[iy][ihist]);
 			gausFit[iy][ihist] = histos[iy][ihist]->GetFunction("gaus");
 			meanValueGaussian[iy][ihist] = gausFit[iy][ihist]->GetParameter(1);
-			RMSGaussian[iy][ihist] = gausFit[iy][ihist]->GetParameter(2);	
-			
-			
+			RMSGaussian[iy][ihist] = gausFit[iy][ihist]->GetParameter(2);			
 														
 		}
 	}
@@ -1244,7 +1243,7 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> x, // axes to combin
 	else if (_module_plot_option == "good") tableCaption = "Means and standard deviations of "+_alignment_name+" - "+_reference_name+" for each subdetector, only good modules used.";
 	else if (_module_plot_option == "list") tableCaption = "Means and standard deviations of "+_alignment_name+" - "+_reference_name+" for each subdetector, good modules and those in given list used.";
 	
-	WriteTable(x,NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES,meanValue,RMS,"0",tableCaption,tableFileName);
+	WriteTable(y,NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES,meanValue,RMS,"0",tableCaption,tableFileName);
 		
 		
 	//~ // table using  Gaussian fit, round to integers in µm etc.
@@ -1254,7 +1253,7 @@ void GeometryComparisonPlotter::MakeTables (vector<TString> x, // axes to combin
 	else if (_module_plot_option == "list") tableCaption = "Means and standard deviations for Gaussian fit of "+_alignment_name+" - "+_reference_name+" for each subdetector, good modules and those in given list used.";
 	
 	
-	WriteTable(x,NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES,meanValueGaussian,RMSGaussian,"0",tableCaption,tableFileName);
+	WriteTable(y,NB_SUBLEVELS*NB_Z_SLICES*NB_X_SLICES,meanValueGaussian,RMSGaussian,"0",tableCaption,tableFileName);
 	      
 
 
