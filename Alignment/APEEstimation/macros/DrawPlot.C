@@ -25,7 +25,7 @@ legendXmin_(0.41), legendYmin_(0.27), legendXmax_(0.71), legendYmax_(0.42),
 thesisMode_(false)
 {
   std::stringstream ss_inpath, ss_inpathZeroApe;
-  ss_inpath<<"$CMSSW_BASE/src/Alignment/APEEstimation/hists/workingArea/iter";
+  ss_inpath<<"$CMSSW_BASE/src/Alignment/APEEstimation/hists/workingArea_startup/iter";
   ss_inpathZeroApe<<ss_inpath.str()<<"0/";
   ss_inpath<<iterationNumber<<"/";
   

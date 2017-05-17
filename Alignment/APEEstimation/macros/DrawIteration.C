@@ -28,7 +28,7 @@ outpath_(0), file_(0), overlayMode_(overlayMode), yAxisFixed_(false), systematic
 {
   if(!overlayMode_){
     std::stringstream ss_inpath;
-    ss_inpath<<"$CMSSW_BASE/src/Alignment/APEEstimation/hists/workingArea/iter"<<iterationNumber<<"/";
+    ss_inpath<<"$CMSSW_BASE/src/Alignment/APEEstimation/hists/workingArea_startup/iter"<<iterationNumber<<"/";
     const TString* inpath = new TString(ss_inpath.str().c_str());
     outpath_ = new TString(inpath->Copy().Append("plots/"));
     const TString* fileName = new TString(inpath->Copy().Append("allData_iterationApe.root"));
@@ -390,11 +390,15 @@ std::vector<std::string> DrawIteration::pixelHist(){
   v_name.push_back("BpixLayer2In");
   v_name.push_back("BpixLayer3Out");
   v_name.push_back("BpixLayer3In");
+  v_name.push_back("BpixLayer4Out");
+  v_name.push_back("BpixLayer4In");
   
   v_name.push_back("FpixMinusLayer1");
   v_name.push_back("FpixMinusLayer2");
+  v_name.push_back("FpixMinusLayer3");
   v_name.push_back("FpixPlusLayer1");
   v_name.push_back("FpixPlusLayer2");
+  v_name.push_back("FpixPlusLayer3");
   
   return v_name;
 }
@@ -716,7 +720,11 @@ void DrawIteration::drawFinals(const std::string& xOrY){
 	    systHist->SetBinContent(4, 10.);
 	    systHist->SetBinContent(5, 10.);
 	    systHist->SetBinContent(6, 10.);
-	    systHist->SetBinContent(9, 5.);
+	    systHist->SetBinContent(7, 10.);
+	    systHist->SetBinContent(8, 10.);
+	    systHist->SetBinContent(9, 10.);
+	    systHist->SetBinContent(10, 10.);
+	    systHist->SetBinContent(13, 5.);
 	  }
 	  else if(xOrY=="y"){
 	    systHist->SetBinContent(1, 15.);
@@ -725,7 +733,11 @@ void DrawIteration::drawFinals(const std::string& xOrY){
 	    systHist->SetBinContent(4, 20.);
 	    systHist->SetBinContent(5, 15.);
 	    systHist->SetBinContent(6, 15.);
-	    systHist->SetBinContent(9, 5.);
+	    systHist->SetBinContent(7, 15.);
+	    systHist->SetBinContent(8, 15.);
+	    systHist->SetBinContent(9, 15.);
+	    systHist->SetBinContent(10, 15.);
+	    systHist->SetBinContent(13, 5.);
 	  }
 	}
 	if(tob){
@@ -831,7 +843,7 @@ bool DrawIteration::createResultHist(TH1*& hist, const std::vector<std::string>&
     hist->SetBinError(iBin, 0.0000001);
     hist->GetXaxis()->SetBinLabel(iBin, label);
   }
-  hist->SetAxisRange(0.,100.,"Y");
+  hist->SetAxisRange(0.,300.,"Y");
   
   return hasEntry;
 }

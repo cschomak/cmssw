@@ -2,7 +2,7 @@
 
 
 
-dirbase="$CMSSW_BASE/src/Alignment/APEEstimation/hists/workingArea"
+dirbase="$CMSSW_BASE/src/Alignment/APEEstimation/hists/workingArea_startup"
 
 
 for folder in ${dirbase}/*;
