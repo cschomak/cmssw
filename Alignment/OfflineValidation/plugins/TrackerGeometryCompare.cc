@@ -668,6 +668,8 @@ void TrackerGeometryCompare::compareGeometries(Alignable* refAli, Alignable* cur
 		// local
 		TRtot(7) = lRtotal.x(); TRtot(8) = lRtotal.y(); TRtot(9) = lRtotal.z();
 		TRtot(10) = lWtotal.x(); TRtot(11) = lWtotal.y(); TRtot(12) = lWtotal.z();
+		
+		align::moveAlignable(refAli, -TRtot); // Move the reference Alignment back, since we want the positions of the modules in the reference alignment on the x-axis
 
 		fillTree(refAli, TRtot, tTopo, iSetup);
 	}
