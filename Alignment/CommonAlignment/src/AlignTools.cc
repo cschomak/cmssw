@@ -6,6 +6,7 @@
 #include <iostream>
 #include <fstream>
 
+
 //Finds the TR between two alignables - first alignable is reference
 AlgebraicVector align::diffAlignables(Alignable* refAli, Alignable*curAli, const std::string &weightBy, bool weightById, const std::vector< unsigned int > &weightByIdVector){
 	
@@ -35,6 +36,7 @@ AlgebraicVector align::diffAlignables(Alignable* refAli, Alignable*curAli, const
 	//readjust points before finding rotation
 	align::GlobalVector CMref = align::centerOfMass(refVs);
 	align::GlobalVector CMcur = align::centerOfMass(curVs);
+	
 	for (unsigned int k = 0; k < refVs.size(); ++k){
 		refVs[k] -= CMref;
 		curVs[k] -= CMcur;
@@ -42,14 +44,22 @@ AlgebraicVector align::diffAlignables(Alignable* refAli, Alignable*curAli, const
 
 	//find rotational difference (global)
 	align::RotationType rot = align::diffRot(curVs, refVs);
+	// align::CLHEPRotation rot = align::diffRot(curVs, refVs);
+	edm::LogInfo("TrackerGeometryCompare") << "Roation Matrix:" << rot << "\n";	
 	align::EulerAngles theW = align::toAngles( rot );
+	// CLHEPEulerAngles theW = rot.eulerAngles();
+	// align::RotationType rotAlign( rot.xx(),  rot.xy(),  rot.xz(),
+						 // rot.yx(),  rot.yy(),  rot.yz(),
+						 // rot.zx(),  rot.zy(),  rot.zz());
 	//convert to local rotation
 	align::RotationType localrot = refAli->surface().toLocal(rot);
+	// align::RotationType localrot = refAli->surface().toLocal(rotAlign);
 	align::EulerAngles theLocalW = align::toAngles( localrot );
 
 	//adjust translational difference factoring in different rotational CM
 	//needed because rotateInGlobalFrame is about CM of alignable, not points
 	const align::GlobalVector::BasicVectorType& lpvgf = cmdiff.basicVector();
+	// align::GlobalVector moveV( rotAlign.multiplyInverse(lpvgf) - lpvgf);
 	align::GlobalVector moveV( rot.multiplyInverse(lpvgf) - lpvgf);
 	align::GlobalVector theRprime(theR + moveV);
 	//convert to local movement
@@ -63,6 +73,9 @@ AlgebraicVector align::diffAlignables(Alignable* refAli, Alignable*curAli, const
 	deltaRW(4) = theW(1);
 	deltaRW(5) = theW(2);
 	deltaRW(6) = theW(3);
+	// deltaRW(4) = theW.phi();
+	// deltaRW(5) = theW.theta();
+	// deltaRW(6) = theW.psi();
 	// local values
 	deltaRW(7) = theLocalRprime.x();
 	deltaRW(8) = theLocalRprime.y();

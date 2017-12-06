@@ -15,6 +15,7 @@
 
 #include "CondCore/CondDB/interface/Time.h"
 #include "CondFormats/Alignment/interface/Definitions.h"
+#include "CondFormats/Alignment/interface/AlignTransform.h"
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 
 class Alignable;
@@ -23,6 +24,9 @@ class AlignmentLevel;
 
 namespace align
 {
+  typedef CLHEP::HepEulerAngles     CLHEPEulerAngles;
+  typedef CLHEP::HepRotation        CLHEPRotation;
+  
   typedef std::vector<Scalar>       Scalars;
   typedef std::vector<GlobalPoint>  GlobalPoints;
   typedef std::vector<GlobalVector> GlobalVectors;
@@ -56,6 +60,7 @@ namespace align
   /// Find matrix to rotate from nominal to current vectors.
   /// Assume both sets of vectors have the same size and order.
   RotationType diffRot(
+  // CLHEPRotation diffRot(
 		       const GlobalVectors& current,
 		       const GlobalVectors& nominal
 		       );

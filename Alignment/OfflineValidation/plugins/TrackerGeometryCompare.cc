@@ -625,41 +625,36 @@ void TrackerGeometryCompare::compareGeometries(Alignable* refAli, Alignable* cur
 	//coordinate matching, etc etc
 	if (useLevel){
 		DetId detid(refAli->id());
+		
+		edm::LogInfo("TrackerGeometryCompare") << "DetId: " << refAli->id();
 
 		CLHEP::Hep3Vector Rtotal, Wtotal, lRtotal, lWtotal;
-		Rtotal.set(0.,0.,0.); 
-		Wtotal.set(0.,0.,0.);
-		lRtotal.set(0.,0.,0.); 
-		lWtotal.set(0.,0.,0.);
 
-		for (int i = 0; i < 100; i++){
-			AlgebraicVector diff = align::diffAlignables(curAli,refAli, _weightBy, _weightById, _weightByIdVector);
-			CLHEP::Hep3Vector dR(diff[0],diff[1],diff[2]);
-			Rtotal+=dR;
-			CLHEP::Hep3Vector dW(diff[3],diff[4],diff[5]);
-			CLHEP::HepRotation rot(Wtotal.unit(),Wtotal.mag());
-			CLHEP::HepRotation drot(dW.unit(),dW.mag());
-			rot*=drot;
-			Wtotal.set(rot.axis().x()*rot.delta(), rot.axis().y()*rot.delta(), rot.axis().z()*rot.delta());
-			// local coordinates
-			lRtotal.set(diff[6],diff[7],diff[8]);
-			lWtotal.set(diff[9],diff[10],diff[11]);
-			
-			align::moveAlignable(refAli, diff);
-			float tolerance = 1e-7;
-			AlgebraicVector check = align::diffAlignables(curAli, refAli, _weightBy, _weightById, _weightByIdVector);
-			align::GlobalVector checkR(check[0],check[1],check[2]);
-			align::GlobalVector checkW(check[3],check[4],check[5]);
-			if ((checkR.mag() > tolerance)||(checkW.mag() > tolerance)){
-				edm::LogInfo("TrackerGeometryCompare") << "Tolerance Exceeded!(alObjId: " << refAli->alignableObjectId()
-				<< ", rawId: " << refAli->geomDetId().rawId()
-				<< ", subdetId: "<< detid.subdetId() << "): " << diff;
-				throw cms::Exception("Tolerance in TrackerGeometryCompare exceeded");
-			}
-			else{
-				break;
-			}
+		AlgebraicVector diff = align::diffAlignables(refAli, curAli, _weightBy, _weightById, _weightByIdVector);
+		Rtotal.set(-diff[0],-diff[1],-diff[2]); //'diffAlignables' returns 'refAli - curAli' for translations
+		Wtotal.set(diff[3],diff[4],diff[5]); //'diffAlignables' returns 'curAli - refAli' for rotations
+		// local coordinates
+		lRtotal.set(-diff[6],-diff[7],-diff[8]); //'diffAlignables' returns 'refAli - curAli' for translations
+		lWtotal.set(diff[9],diff[10],diff[11]); //'diffAlignables' returns 'curAli - refAli' for rotations
+		
+		align::moveAlignable(curAli, diff);
+		float tolerance = 1e-7;
+		AlgebraicVector check = align::diffAlignables(refAli, curAli, _weightBy, _weightById, _weightByIdVector);
+		align::GlobalVector checkR(check[0],check[1],check[2]);
+		check[3] = std::abs( check[3] - M_PI ) < 0.01 ? check[3] - M_PI : check[3];
+		check[4] = std::abs( check[4] - M_PI ) < 0.01 ? check[4] - M_PI : check[4];
+		check[5] = std::abs( check[5] - M_PI ) < 0.01 ? check[5] - M_PI : check[5];
+		check[3] = std::abs( check[3] + M_PI ) < 0.01 ? check[3] + M_PI : check[3];
+		check[4] = std::abs( check[4] + M_PI ) < 0.01 ? check[4] + M_PI : check[4];
+		check[5] = std::abs( check[5] + M_PI ) < 0.01 ? check[5] + M_PI : check[5];
+		align::GlobalVector checkW(check[3],check[4],check[5]);
+		if ((checkR.mag() > tolerance)||(checkW.mag() > tolerance)){
+			edm::LogInfo("TrackerGeometryCompare") << "Tolerance Exceeded!(alObjId: " << refAli->alignableObjectId()
+			<< ", rawId: " << refAli->geomDetId().rawId()
+			<< ", subdetId: "<< detid.subdetId() << "): " << diff << check;
+			throw cms::Exception("Tolerance in TrackerGeometryCompare exceeded");
 		}
+
 
 		AlgebraicVector TRtot(12);
 		// global 
@@ -667,12 +662,14 @@ void TrackerGeometryCompare::compareGeometries(Alignable* refAli, Alignable* cur
 		TRtot(4) = Wtotal.x(); TRtot(5) = Wtotal.y(); TRtot(6) = Wtotal.z();
 		// local
 		TRtot(7) = lRtotal.x(); TRtot(8) = lRtotal.y(); TRtot(9) = lRtotal.z();
-		TRtot(10) = lWtotal.x(); TRtot(11) = lWtotal.y(); TRtot(12) = lWtotal.z();
+		TRtot(10) = lWtotal.x(); TRtot(11) = lWtotal.y(); TRtot(12) = lWtotal.z();		
 		
-		align::moveAlignable(refAli, -TRtot); // Move the reference Alignment back, since we want the positions of the modules in the reference alignment on the x-axis
-
+		edm::LogInfo("TrackerGeometryCompare") << "Global Angles (differences): phi: " << TRtot(4) << " theta: " << TRtot(5) << ", psi: " << TRtot(6);
+		edm::LogInfo("TrackerGeometryCompare") << "Local Angles (differences): phi: " << TRtot(10) << " theta: " << TRtot(11) << ", psi: " << TRtot(12);
+		
 		fillTree(refAli, TRtot, tTopo, iSetup);
 	}
+	
 
 	// another added level for difference between det and detunit
 	for (unsigned int i = 0; i < nComp; ++i) 

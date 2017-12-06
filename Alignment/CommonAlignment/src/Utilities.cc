@@ -5,6 +5,65 @@
 
 #include "Alignment/CommonAlignment/interface/Utilities.h"
 
+#include <math.h>
+
+static inline double safe_acos (double x) {
+  if (std::abs(x) <= 1.0) return std::acos(x);
+  return ( (x>0) ? 0 : M_PI );
+}
+
+static               
+ void correctByPi ( double& psi, double& phi ) {
+   if (psi > 0) {
+     psi -= M_PI;
+   } else {
+     psi += M_PI;
+   }
+   if (phi > 0) {
+     phi -= M_PI;
+   } else {
+     phi += M_PI;
+   }  
+ }
+ 
+static
+ void correctPsiPhi ( double rxz, double rzx, double ryz, double rzy, 
+                      double& psi, double& phi ) {
+   // set up quatities which would be positive if sin and cosine of
+   // psi1 and phi1 were positive:
+   double w[4];
+   w[0] = rxz; w[1] = rzx; w[2] = ryz; w[3] = -rzy;
+ 
+   // find biggest relevant term, which is the best one to use in correcting.
+   double maxw = std::abs(w[0]); 
+   int imax = 0;
+   for (int i = 1; i < 4; ++i) {
+     if (std::abs(w[i]) > maxw) {
+       maxw = std::abs(w[i]);
+       imax = i;
+     }
+   }
+   // Determine if the correction needs to be applied:  The criteria are 
+   // different depending on whether a sine or cosine was the determinor: 
+   switch (imax) {
+     case 0:
+       if (w[0] > 0 && psi < 0)           correctByPi ( psi, phi );
+       if (w[0] < 0 && psi > 0)           correctByPi ( psi, phi );
+       break;                                                   
+     case 1:                                                    
+       if (w[1] > 0 && phi < 0)           correctByPi ( psi, phi );
+       if (w[1] < 0 && phi > 0)           correctByPi ( psi, phi );
+       break;
+     case 2:
+       if (w[2] > 0 && std::abs(psi) > M_PI_2) correctByPi ( psi, phi );    
+       if (w[2] < 0 && std::abs(psi) < M_PI_2) correctByPi ( psi, phi );    
+       break;                                                          
+     case 3:                                                           
+       if (w[3] > 0 && std::abs(phi) > M_PI_2) correctByPi ( psi, phi );    
+       if (w[3] < 0 && std::abs(phi) < M_PI_2) correctByPi ( psi, phi );    
+       break;
+   }
+}
 
 align::EulerAngles align::toAngles(const RotationType& rot)
 {
@@ -12,42 +71,122 @@ align::EulerAngles align::toAngles(const RotationType& rot)
 
   EulerAngles angles(3);
 
-  if (std::abs( rot.zx() ) > one)
-  {
-    edm::LogWarning("Alignment") << "Rounding errors in\n" << rot;
-  }
+  // if (std::abs( rot.zx() ) > one)
+  // {
+    // edm::LogWarning("Alignment") << "Rounding errors in\n" << rot;
+  // }
+// 
+  // if (std::abs( rot.zx() ) < one)
+  // {
+    // angles(1) = -std::atan2( rot.zy(), rot.zz() );
+    // angles(2) =  std::asin( rot.zx() );
+    // angles(3) = -std::atan2( rot.yx(), rot.xx() );
+  // }
+  // else if (rot.zx() >= one)
+  // {
+    // angles(1) = std::atan2(rot.xy() + rot.yz(), rot.yy() - rot.xz() );
+    // angles(2) = std::asin(one);
+    // angles(3) = 0;
+  // }
+  // else if (rot.zx() <= -one)
+  // {
+    // angles(1) = std::atan2(rot.xy() - rot.yz(), rot.yy() + rot.xz() );
+    // angles(2) = std::asin(-one);
+    // angles(3) = 0;
+  // }
+  
+  double phi, theta, psi;
+  double psiPlusPhi, psiMinusPhi;
+  
+  theta = safe_acos( rot.zz() );
+    
+  double cosTheta = rot.zz();
+  
+  if (cosTheta > one) cosTheta = one;
+  if (cosTheta < -one) cosTheta = -one;
+  
+  if (cosTheta == one) {
+	  psiPlusPhi = std::atan2( rot.xy() - rot.yx(), rot.xx() + rot.yy() );
+	  psiMinusPhi = 0;
+	  
+  } else if (cosTheta >= 0) {
+ 
+     // In this realm, the atan2 expression for psi + phi is numerically stable
+     psiPlusPhi = std::atan2 ( rot.xy() - rot.yx(), rot.xx() + rot.yy() );
+ 
+     // psi - phi is potentially more subtle, but when unstable it is moot
+     double s1 = -rot.xy() - rot.yx(); // std::sin (psi-phi) * (1 - cos theta)
+     double c =  rot.xx() - rot.yy(); // std::cos (psi-phi) * (1 - cos theta)
+     psiMinusPhi = std::atan2 ( s1, c );
+         
+   } else if (cosTheta > -1) {
+ 
+     // In this realm, the atan2 expression for psi - phi is numerically stable
+     psiMinusPhi = std::atan2 ( -rot.xy() - rot.yx(), rot.xx() - rot.yy() );
+ 
+    // psi + phi is potentially more subtle, but when unstable it is moot
+     double s1 = rot.xy() - rot.yx(); // std::sin (psi+phi) * (1 + cos theta)
+     double c = rot.xx() + rot.yy(); // std::cos (psi+phi) * (1 + cos theta)
+     psiPlusPhi = std::atan2 ( s1, c );
+ 
+   } else { // cosTheta == -1
+ 
+     psiMinusPhi = std::atan2 ( -rot.xy() - rot.yx(), rot.xx() - rot.yy() );
+     psiPlusPhi = 0;
+ 
+   }
+   
+   psi = .5 * (psiPlusPhi + psiMinusPhi); 
+   phi = .5 * (psiPlusPhi - psiMinusPhi);
+ 
+   // Now correct by pi if we have managed to get a value of psiPlusPhi
+   // or psiMinusPhi that was off by 2 pi:
+   
+   correctPsiPhi ( rot.xz(), rot.zx(), rot.yz(), rot.zy(), psi, phi );
+   
+   angles(1) = phi;
+   angles(2) = theta;
+   angles(3) = psi;
 
-  if (std::abs( rot.zx() ) < one)
-  {
-    angles(1) = -std::atan2( rot.zy(), rot.zz() );
-    angles(2) =  std::asin( rot.zx() );
-    angles(3) = -std::atan2( rot.yx(), rot.xx() );
-  }
-  else if (rot.zx() >= one)
-  {
-    angles(1) = std::atan2(rot.xy() + rot.yz(), rot.yy() - rot.xz() );
-    angles(2) = std::asin(one);
-    angles(3) = 0;
-  }
-  else if (rot.zx() <= -one)
-  {
-    angles(1) = std::atan2(rot.xy() - rot.yz(), rot.yy() + rot.xz() );
-    angles(2) = std::asin(-one);
-    angles(3) = 0;
-  }
 
   return angles;
 }
 
 align::RotationType align::toMatrix(const EulerAngles& angles)
 {
-  Scalar s1 = std::sin(angles[0]), c1 = std::cos(angles[0]);
-  Scalar s2 = std::sin(angles[1]), c2 = std::cos(angles[1]);
-  Scalar s3 = std::sin(angles[2]), c3 = std::cos(angles[2]);
+  // Scalar s1 = std::sin(angles[0]), c1 = std::cos(angles[0]);
+  // Scalar s2 = std::sin(angles[1]), c2 = std::cos(angles[1]);
+  // Scalar s3 = std::sin(angles[2]), c3 = std::cos(angles[2]);
 
-  return RotationType( c2 * c3, c1 * s3 + s1 * s2 * c3, s1 * s3 - c1 * s2 * c3,
-	   	      -c2 * s3, c1 * c3 - s1 * s2 * s3, s1 * c3 + c1 * s2 * s3,
-		            s2,               -s1 * c2,                c1 * c2);
+  // return RotationType( c2 * c3, c1 * s3 + s1 * s2 * c3, s1 * s3 - c1 * s2 * c3,
+	   	      // -c2 * s3, c1 * c3 - s1 * s2 * s3, s1 * c3 + c1 * s2 * s3,
+		            // s2,               -s1 * c2,                c1 * c2);
+		                        
+  // return RotationType( c1 * c3 - s1 * c2 * s3,       s1 * c3 + c1 * c2 * s3,   s2 * s3,
+	   	              // -c1 * s3 - s1 * c2 * c3,      -s1 * s3 + c1 * c2 * c3,   s2 * c3,
+		                        // s1 * s2,                    -c1 * s2,           c2);
+		                        
+   Scalar sinPhi = std::sin(angles[0]), cosPhi = std::cos(angles[0]);
+   Scalar sinTheta = std::sin(angles[1]), cosTheta = std::cos(angles[1]);
+   Scalar sinPsi = std::sin(angles[2]), cosPsi = std::cos(angles[2]);
+  
+   double rxx, rxy, rxz, ryx, ryy, ryz, rzx, rzy, rzz;
+   
+   rxx =   cosPsi * cosPhi - cosTheta * sinPhi * sinPsi;
+   rxy =   cosPsi * sinPhi + cosTheta * cosPhi * sinPsi;
+   rxz =   sinPsi * sinTheta;
+ 
+   ryx = - sinPsi * cosPhi - cosTheta * sinPhi * cosPsi;
+   ryy = - sinPsi * sinPhi + cosTheta * cosPhi * cosPsi;
+   ryz =   cosPsi * sinTheta;
+ 
+   rzx =   sinTheta * sinPhi;
+   rzy = - sinTheta * cosPhi;
+   rzz =   cosTheta;
+   
+   return RotationType ( rxx,  rxy,  rxz,
+						 ryx,  ryy,  ryz,
+						 rzx,  rzy,  rzz);
 }
 
 align::PositionType align::motherPosition(const std::vector<const PositionType*>& dauPos)
@@ -71,6 +210,7 @@ align::PositionType align::motherPosition(const std::vector<const PositionType*>
 }
 
 align::RotationType align::diffRot(const GlobalVectors& current,
+// align::CLHEPRotation align::diffRot(const GlobalVectors& current,
 				   const GlobalVectors& nominal)
 {
 // Find the matrix needed to rotate the nominal surface to the current one
@@ -104,6 +244,7 @@ align::RotationType align::diffRot(const GlobalVectors& current,
 
   static const double tolerance = 1e-12;
 
+  // CLHEPRotation rot; // rotation from nominal to current; init to identity
   RotationType rot; // rotation from nominal to current; init to identity
 
 // Initial values for dr and I; I is always the same in each step
@@ -144,8 +285,20 @@ align::RotationType align::diffRot(const GlobalVectors& current,
     }
 
     EulerAngles dOmega = CLHEP::solve(I, rhs);
-
+    
     rot *= toMatrix(dOmega); // add to rotation
+    
+    // CLHEPEulerAngles eAngle(dOmega[0],dOmega[1],dOmega[2]);
+    // CLHEPRotation drot(eAngle); 
+    
+    // RotationType dRot( drot.xx(),  drot.xy(),  drot.xz(),
+						 // drot.yx(),  drot.yy(),  drot.yz(),
+						 // drot.zx(),  drot.zy(),  drot.zz());
+    // rot *= dRot; // add to rotation
+    
+    // RotationType alignRot( rot.xx(), rot.xy(), rot.xz(),
+						 // rot.yx(),  rot.yy(),  rot.yz(),
+						 // rot.zx(),  rot.zy(),  rot.zz());
 
     if (dOmega.normsq() < tolerance) break; // converges, so exit loop
     count++;
@@ -159,6 +312,7 @@ align::RotationType align::diffRot(const GlobalVectors& current,
     for (unsigned int j = 0; j < nPoints; ++j)
     {
       rotated[j] = GlobalVector( rot.multiplyInverse( current[j].basicVector() ) );
+      // rotated[j] = GlobalVector( alignRot.multiplyInverse( current[j].basicVector() ) );
     }
   }
 

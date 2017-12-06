@@ -5,7 +5,29 @@ process.load("Configuration.StandardSequences.FrontierConditions_GlobalTag_cff")
 process.load("Configuration.Geometry.GeometryDB_cff")
 
 process.load("FWCore.MessageService.MessageLogger_cfi")
-process.MessageLogger.destinations = ['cout', 'cerr']
+process.MessageLogger.LOGFILE = cms.untracked.PSet(
+    DEBUG = cms.untracked.PSet(
+        limit = cms.untracked.int32(-1)
+        ),
+    INFO = cms.untracked.PSet(
+        limit = cms.untracked.int32(-1),
+        #~ reportEvery = cms.untracked.int32(5)
+        ),
+    WARNING = cms.untracked.PSet(
+        limit = cms.untracked.int32(10)
+        ),
+    ERROR = cms.untracked.PSet(
+        limit = cms.untracked.int32(-1)
+        ),
+    Alignment = cms.untracked.PSet(
+        limit = cms.untracked.int32(-1),
+        reportEvery = cms.untracked.int32(1)
+        )
+    )
+process.MessageLogger.cerr.placeholder = cms.untracked.bool(True)
+process.MessageLogger.destinations = ['LOGFILE']
+process.MessageLogger.statistics = ['LOGFILE']
+process.MessageLogger.categories = ['Alignment']
 
 ### needed to get the geometry
 from Configuration.AlCa.GlobalTag import GlobalTag
@@ -58,7 +80,7 @@ process.TrackerGeometryCompare.inputROOTFile1 = 'IDEAL'
 process.TrackerGeometryCompare.inputROOTFile2 = GeometryIntoNtuplesRootFile
 process.TrackerGeometryCompare.setCommonTrackerSystem = "P1PXBBarrel"  # for MC
 #process.TrackerGeometryCompare.setCommonTrackerSystem = "TOBBarrel"  # for Data
-process.TrackerGeometryCompare.levels = []
+process.TrackerGeometryCompare.levels = ["DetUnit"]
 process.TrackerGeometryCompare.writeToDB = True
 
 process.TFileService = cms.Service("TFileService",
